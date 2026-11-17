@@ -1,0 +1,24 @@
+{
+  "name": "벤치에서 발롱까지 : 선수 & 감독 에디션",
+  "short_name": "킥루 에디션",
+  "description": "축구선수 커리어 에디터 + 구단 감독 육성 3D/2D 라이브 매치 + 로컬 폴더 저장",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#16a34a",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
