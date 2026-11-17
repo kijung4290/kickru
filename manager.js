@@ -135,6 +135,7 @@
   let state = null;
   let activeNav = "home"; // home | squad | market | facilities | league | editor
   let setupDraft = {
+    teamType: "club", // club | national
     managerName: "박감독",
     nationality: "kr",
     trait: "tactician",
@@ -144,17 +145,125 @@
   };
   let marketQuery = "";
   let moveClubQuery = "";
+  let moveTeamFilter = "all"; // all | club | national
   let editingPlayerId = null;
   let liveMatch = null;
   let liveRafId = null;
   let liveTickTimer = null;
 
+  let NT_TEAMS = [];
+  let NT_TEAM_MAP = {};
+  let NT_LEAGUES = [];
+  let NT_LEAGUE_MAP = {};
+  let _ntReady = false;
+
   const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
   const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+  function ensureNationalTeams() {
+    const r6 = window.__KICKRU_BRIDGE__?.r6;
+    if (!r6) return;
+    if (_ntReady && NT_TEAMS.length) return;
+    const baseNations = [...(r6.nations || r6.countries || [])];
+    if (!baseNations.length) return;
+
+    const existingCodes = new Set(baseNations.map((n) => n.code));
+    const extraWorldNations = [
+      { code: "ma", name: "모로코", flag: "🇲🇦", confederation: "CAF", strength: 71 },
+      { code: "sn", name: "세네갈", flag: "🇸🇳", confederation: "CAF", strength: 69 },
+      { code: "ng", name: "나이지리아", flag: "🇳🇬", confederation: "CAF", strength: 68 },
+      { code: "eg", name: "이집트", flag: "🇪🇬", confederation: "CAF", strength: 67 },
+      { code: "ci", name: "코트디부아르", flag: "🇨🇮", confederation: "CAF", strength: 67 },
+      { code: "ca", name: "캐나다", flag: "🇨🇦", confederation: "CONCACAF", strength: 66 },
+      { code: "nz", name: "뉴질랜드", flag: "🇳🇿", confederation: "OFC", strength: 58 },
+    ];
+    for (const ex of extraWorldNations) {
+      if (!existingCodes.has(ex.code)) baseNations.push(ex);
+    }
+
+    NT_TEAMS = [];
+    NT_TEAM_MAP = {};
+    NT_LEAGUES = [];
+    NT_LEAGUE_MAP = {};
+
+    const byConf = { AFC: [], UEFA: [], CONMEBOL: [], GLOBAL: [] };
+    for (const n of baseNations) {
+      const conf = n.confederation || "FIFA";
+      const bucket = conf === "AFC" ? "AFC" : conf === "UEFA" ? "UEFA" : conf === "CONMEBOL" ? "CONMEBOL" : "GLOBAL";
+      const str = clamp(Math.round((n.strength || 58) + 14), 52, 93);
+      const ntObj = {
+        id: "nt-" + n.code,
+        name: `${n.name} National Team`,
+        localName: `${n.flag || "🌍"} ${n.name} 대표팀`,
+        country: n.code,
+        confederation: conf,
+        flag: n.flag || "🌍",
+        strength: str,
+        isNational: true,
+        league: "",
+        nationalLeagueGroup: "nt_" + bucket.toLowerCase(),
+      };
+      NT_TEAMS.push(ntObj);
+      NT_TEAM_MAP[ntObj.id] = ntObj;
+      byConf[bucket].push(ntObj);
+    }
+
+    const addLeague = (id, name, group, tier, list) => {
+      if (!list.length) return;
+      const lg = { id, name, country: group, tier, isNationalLeague: true, clubIds: list.map((t) => t.id) };
+      for (const t of list) t.league = id;
+      NT_LEAGUES.push(lg);
+      NT_LEAGUE_MAP[id] = lg;
+    };
+
+    const afc = [...byConf.AFC].sort((a, b) => b.strength - a.strength);
+    const afcSplit = Math.min(12, Math.max(6, Math.ceil(afc.length / 2)));
+    addLeague("nt.afc.1", "🌏 AFC 네이션스리그 A · 월드컵 최종예선", "nt_afc", 1, afc.slice(0, afcSplit));
+    addLeague("nt.afc.2", "🌏 AFC 네이션스리그 B · 아시안 예선", "nt_afc", 2, afc.slice(afcSplit));
+
+    const uefa = [...byConf.UEFA].sort((a, b) => b.strength - a.strength);
+    addLeague("nt.uefa.1", "🇪🇺 UEFA 네이션스리그 A (최상위)", "nt_uefa", 1, uefa.slice(0, 16));
+    addLeague("nt.uefa.2", "🇪🇺 UEFA 네이션스리그 B", "nt_uefa", 2, uefa.slice(16, 34));
+    addLeague("nt.uefa.3", "🇪🇺 UEFA 네이션스리그 C", "nt_uefa", 3, uefa.slice(34));
+
+    const conmebol = [...byConf.CONMEBOL].sort((a, b) => b.strength - a.strength);
+    addLeague("nt.conmebol.1", "🌎 CONMEBOL 남미 풀리그 예선", "nt_conmebol", 1, conmebol);
+
+    const global = [...byConf.GLOBAL].sort((a, b) => b.strength - a.strength);
+    addLeague("nt.global.1", "🌍 인터컨티넨탈 네이션스리그 (아프리카·북중미)", "nt_global", 1, global);
+
+    NT_TEAMS.sort((a, b) => (a.country === "kr" ? -1 : b.country === "kr" ? 1 : b.strength - a.strength));
+    _ntReady = true;
+  }
+
+  function getClub(id) {
+    ensureNationalTeams();
+    return NT_TEAM_MAP[id] || window.__KICKRU_BRIDGE__?.r6?.clubMap?.[id] || null;
+  }
+
+  function getLeague(id) {
+    ensureNationalTeams();
+    return NT_LEAGUE_MAP[id] || window.__KICKRU_BRIDGE__?.r6?.leagueMap?.[id] || null;
+  }
+
+  function getAllLeagues() {
+    ensureNationalTeams();
+    return [...NT_LEAGUES, ...(window.__KICKRU_BRIDGE__?.r6?.leagues || [])];
+  }
+
+  function getAllClubs(kind = "all") {
+    ensureNationalTeams();
+    const realClubs = window.__KICKRU_BRIDGE__?.r6?.clubs || [];
+    if (kind === "national") return NT_TEAMS;
+    if (kind === "club") return realClubs;
+    return [...NT_TEAMS, ...realClubs];
+  }
+
   function getBridge() {
-    return window.__KICKRU_BRIDGE__ || null;
+    const b = window.__KICKRU_BRIDGE__ || null;
+    if (b?.r6) ensureNationalTeams();
+    return b;
   }
 
   function formatMoney(krw) {
@@ -190,8 +299,12 @@
   }
 
   function clubLogoHtml(clubId, small = false) {
-    const bridge = getBridge();
-    const club = bridge?.r6?.clubMap?.[clubId];
+    const club = getClub(clubId);
+    const cls = small ? "gm-logo-sm" : "gm-logo-box";
+    if (club?.isNational) {
+      const fs = small ? 15 : 26;
+      return `<span class="${cls}" style="font-size:${fs}px;line-height:1;">${escapeHtml(club.flag || "🌍")}</span>`;
+    }
     const label = club?.localName || clubId || "FC";
     const initials = (club?.name || label)
       .replace(/\b(FC|CF|SC|AC)\b/g, "")
@@ -201,7 +314,6 @@
       .map((w) => w[0])
       .join("")
       .toUpperCase();
-    const cls = small ? "gm-logo-sm" : "gm-logo-box";
     const size = small ? 20 : 44;
     const base = window.__KICKRU_BASE__ || "/";
     const idEnc = escapeHtml(clubId);
@@ -240,7 +352,7 @@
     const age = opts.age ?? randInt(17, 32);
     const ovr = clamp(opts.ovr ?? baseStrength + randInt(-5, 5), 42, 99);
     const pot = clamp(opts.pot ?? Math.max(ovr, age <= 22 ? ovr + randInt(4, 18) : ovr + randInt(0, 5)), ovr, 99);
-    const nat = opts.nationality || (Math.random() < 0.72 ? country : pick(["kr", "jp", "en", "es", "br", "fr", "de", "it", "ar", "pt"]));
+    const nat = opts.nationality || (opts.forceNationality || Math.random() < 0.72 ? country : pick(["kr", "jp", "en", "es", "br", "fr", "de", "it", "ar", "pt"]));
     return {
       id: "p_" + Math.random().toString(36).slice(2, 10) + "_" + Date.now().toString(36),
       name: opts.name || genName(nat),
@@ -274,6 +386,7 @@
       makePlayer(pos, s, club.country, {
         age: idx % 5 === 0 ? randInt(18, 21) : randInt(21, 32),
         ovr: clamp(s + (idx % 3 === 0 ? randInt(-1, 5) : randInt(-6, 2)), 45, 95),
+        forceNationality: !!club.isNational,
       })
     );
     autoPickStarters(squad, "4-3-3");
@@ -412,8 +525,9 @@
 
   function generateMarketPool(mgrState, count = 12) {
     const bridge = getBridge();
-    const league = bridge?.r6?.leagueMap?.[mgrState.leagueId];
-    const club = bridge?.r6?.clubMap?.[mgrState.clubId];
+    const league = getLeague(mgrState.leagueId);
+    const club = getClub(mgrState.clubId);
+    const isNat = !!club?.isNational;
     const scoutLv = mgrState.facilities.scouting || 1;
     const baseStr = Math.max(club?.strength || 65, computeTeamStats(mgrState).total);
     const tierFactor = league ? Math.max(0, 4 - league.tier) * 2 : 2;
@@ -426,13 +540,23 @@
       const ovrBoost = Math.round(scoutLv * 1.4) + randInt(-4, 6) + (i === 0 ? 4 : 0);
       const ovr = clamp(baseStr + tierFactor + ovrBoost - 3, 52, 95);
       const pot = clamp(Math.max(ovr, age <= 22 ? ovr + randInt(5, 18) : ovr + randInt(0, 4)), ovr, 99);
-      const isFree = i % 5 === 4;
+      const isFree = isNat || i % 5 === 4;
       const rawVal = estimatePlayerValue(ovr, age, pot);
       const price = isFree ? 0 : Math.max(50000000, Math.round((rawVal * Math.max(0.55, discount)) / 10000000) * 10000000);
-      const p = makePlayer(pos, ovr, club?.country || "kr", { age, ovr, pot, value: rawVal });
+      const p = makePlayer(pos, ovr, club?.country || "kr", {
+        age,
+        ovr,
+        pot,
+        value: rawVal,
+        forceNationality: isNat,
+      });
       p.price = price;
       p.isFreeAgent = isFree;
-      p.fromClub = isFree ? "자유계약 (FA)" : pick(bridge.r6.clubs).localName;
+      p.fromClub = isNat
+        ? pick(bridge.r6.clubs).localName + " (자국 국적 차출)"
+        : isFree
+        ? "자유계약 (FA)"
+        : pick(bridge.r6.clubs).localName;
       list.push(p);
     }
     return list.sort((a, b) => b.ovr - a.ovr);
@@ -440,7 +564,34 @@
 
   function createCup(mgrState) {
     const bridge = getBridge();
-    const club = bridge.r6.clubMap[mgrState.clubId];
+    const club = getClub(mgrState.clubId);
+    if (club?.isNational) {
+      const conf = club.confederation || "AFC";
+      const sameConf = NT_TEAMS.filter((t) => t.confederation === conf).sort((a, b) => b.strength - a.strength);
+      const restNations = NT_TEAMS.filter((t) => t.confederation !== conf).sort((a, b) => b.strength - a.strength);
+      const combined = [club.id, ...sameConf.filter((c) => c.id !== club.id).map((c) => c.id), ...restNations.map((c) => c.id)];
+      let size = sameConf.length >= 16 ? 16 : sameConf.length >= 8 ? 8 : 4;
+      const teams = combined.slice(0, size).sort(() => Math.random() - 0.5);
+      const cupTitle =
+        conf === "AFC"
+          ? "AFC 아시안컵"
+          : conf === "UEFA"
+          ? "UEFA 유로 (EURO)"
+          : conf === "CONMEBOL"
+          ? "코파 아메리카"
+          : conf === "CAF"
+          ? "CAF 아프리카 네이션스컵"
+          : "CONCACAF 골드컵";
+      return {
+        name: cupTitle,
+        teams,
+        alive: true,
+        roundIdx: 0,
+        winner: null,
+        resultText: `${teams.length}강 조편성`,
+      };
+    }
+
     const domesticClubs = bridge.r6.clubs
       .filter((c) => c.country === club.country)
       .sort((a, b) => (b.strength || 60) - (a.strength || 60));
@@ -463,7 +614,32 @@
 
   function createContinentalCup(mgrState, qualified) {
     const bridge = getBridge();
-    const club = bridge.r6.clubMap[mgrState.clubId];
+    const club = getClub(mgrState.clubId);
+    if (club?.isNational) {
+      const topWorld = [...NT_TEAMS].sort((a, b) => b.strength - a.strength).slice(0, 16).map((c) => c.id);
+      if (!qualified) {
+        return {
+          name: "FIFA 월드컵 본선",
+          qualified: false,
+          teams: topWorld,
+          alive: false,
+          roundIdx: 0,
+          winner: null,
+          resultText: "지역 예선 통과 필요 (1부 리그 또는 상위권)",
+        };
+      }
+      const teams = topWorld.includes(mgrState.clubId) ? topWorld : [mgrState.clubId, ...topWorld.slice(0, 15)];
+      return {
+        name: "FIFA 월드컵 본선",
+        qualified: true,
+        teams: teams.sort(() => Math.random() - 0.5),
+        alive: true,
+        roundIdx: 0,
+        winner: null,
+        resultText: "월드컵 16강 조편성 완료",
+      };
+    }
+
     const confed = bridge.r6.countryMap[club.country]?.confederation || "UEFA";
     const name =
       confed === "UEFA"
@@ -497,11 +673,12 @@
 
   function buildNewCareer(opts) {
     const bridge = getBridge();
-    const club = bridge.r6.clubMap[opts.clubId] || bridge.r6.clubs[0];
-    const league = bridge.r6.leagueMap[club.league];
+    const club = getClub(opts.clubId) || bridge.r6.clubs[0];
+    const league = getLeague(club.league);
 
     // Initialize world leagues map for promotion/relegation
-    const sameCountryLeagues = bridge.r6.leagues.filter((l) => l.country === club.country);
+    const leagueCountryKey = club.isNational ? club.nationalLeagueGroup : club.country;
+    const sameCountryLeagues = getAllLeagues().filter((l) => l.country === leagueCountryKey);
     const worldLeagues = {};
     for (const l of sameCountryLeagues) {
       worldLeagues[l.id] = [...l.clubIds];
@@ -519,6 +696,7 @@
     const newState = {
       version: 1,
       year: 2026,
+      isNational: !!club.isNational,
       manager: {
         name: (opts.managerName || "박감독").trim().slice(0, 24) || "박감독",
         nationality: opts.nationality || "kr",
@@ -560,13 +738,14 @@
       managerOffers: [],
     };
 
-    setupSeasonCompetitions(newState, league.tier === 1 && (club.strength || 60) >= 75);
+    const qualCont = club.isNational ? league.tier === 1 : league.tier === 1 && (club.strength || 60) >= 75;
+    setupSeasonCompetitions(newState, qualCont);
     newState.market = generateMarketPool(newState);
     return newState;
   }
 
   function setupSeasonCompetitions(s, continentalQualified) {
-    const teamIds = s.worldLeagues[s.leagueId] || getBridge().r6.leagueMap[s.leagueId].clubIds;
+    const teamIds = s.worldLeagues[s.leagueId] || getLeague(s.leagueId).clubIds;
     s.schedule = generateSchedule(teamIds);
     s.table = createEmptyTable(teamIds);
     s.round = 0;
@@ -588,8 +767,7 @@
     if (clubId === s.clubId) {
       return computeTeamStats(s).total;
     }
-    const bridge = getBridge();
-    return bridge.r6.clubMap[clubId]?.strength || 65;
+    return getClub(clubId)?.strength || 65;
   }
 
   function simulateMatchScore(homeStr, awayStr, mySide, s, isCup = false) {
@@ -702,8 +880,8 @@
 
     s.lastMatch = {
       comp: compName,
-      home: isHome ? getBridge().r6.clubMap[s.clubId].localName : oppName,
-      away: isHome ? oppName : getBridge().r6.clubMap[s.clubId].localName,
+      home: isHome ? getClub(s.clubId).localName : oppName,
+      away: isHome ? oppName : getClub(s.clubId).localName,
       hg: isHome ? myGoals : oppGoals,
       ag: isHome ? oppGoals : myGoals,
       scorers,
@@ -738,7 +916,7 @@
 
       if (mySide) {
         const oppId = mySide === "home" ? t2 : t1;
-        const oppName = bridge.r6.clubMap[oppId]?.localName || oppId;
+        const oppName = getClub(oppId)?.localName || oppId;
         const myG = mySide === "home" ? g1 : g2;
         const oppG = mySide === "home" ? g2 : g1;
         recordMatchStats(s, myG, oppG, oppName, mySide === "home", `${compLabel} ${stageName}`);
@@ -747,9 +925,12 @@
             cupObj.winner = s.clubId;
             cupObj.alive = true;
             cupObj.resultText = "🏆 우승";
-            const prize = compLabel.includes("챔피언스") || compLabel.includes("리베르타") ? 80000000000 : 12000000000;
+            const prize =
+              compLabel.includes("챔피언스") || compLabel.includes("리베르타") || compLabel.includes("월드컵") || compLabel.includes("아시안컵") || compLabel.includes("유로")
+                ? 80000000000
+                : 12000000000;
             s.budget += prize;
-            s.trophies.push({ year: s.year, name: compLabel, club: bridge.r6.clubMap[s.clubId].localName });
+            s.trophies.push({ year: s.year, name: compLabel, club: getClub(s.clubId).localName });
             s.news.unshift(`🏆 ${s.year} ${compLabel} 우승! 상금 ${formatMoney(prize)} 획득!`);
           } else {
             cupObj.resultText = `${curCount / 2 === 1 ? "결승" : curCount / 2 + "강"} 진출`;
@@ -813,7 +994,7 @@
 
       if (mySide) {
         const oppId = mySide === "home" ? m.away : m.home;
-        const oppName = bridge.r6.clubMap[oppId]?.localName || oppId;
+        const oppName = getClub(oppId)?.localName || oppId;
         const myG = mySide === "home" ? hg : ag;
         const oppG = mySide === "home" ? ag : hg;
         if (customMyMatch) {
@@ -838,9 +1019,9 @@
           const totalAnnualWages = s.squad.reduce((acc, p) => acc + (p.wage || 0), 0);
           s.budget = Math.max(0, s.budget - Math.round(totalAnnualWages / 42));
           s.lastMatch = {
-            comp: `${bridge.r6.leagueMap[s.leagueId].name} ${s.round + 1}R (실황)`,
-            home: mySide === "home" ? bridge.r6.clubMap[s.clubId].localName : oppName,
-            away: mySide === "home" ? oppName : bridge.r6.clubMap[s.clubId].localName,
+            comp: `${getLeague(s.leagueId).name} ${s.round + 1}R (실황)`,
+            home: mySide === "home" ? getClub(s.clubId).localName : oppName,
+            away: mySide === "home" ? oppName : getClub(s.clubId).localName,
             hg,
             ag,
             scorers: customMyMatch.myScorers || [],
@@ -848,7 +1029,7 @@
             isDraw: myG === oppG,
           };
         } else {
-          recordMatchStats(s, myG, oppG, oppName, mySide === "home", `${bridge.r6.leagueMap[s.leagueId].name} ${s.round + 1}R`);
+          recordMatchStats(s, myG, oppG, oppName, mySide === "home", `${getLeague(s.leagueId).name} ${s.round + 1}R`);
         }
       }
     }
@@ -880,9 +1061,10 @@
     const bridge = getBridge();
     s.seasonOver = true;
 
+    const myClub = getClub(s.clubId);
     const sorted = sortTable(s.table);
     const rank = sorted.findIndex((r) => r.clubId === s.clubId) + 1;
-    const league = bridge.r6.leagueMap[s.leagueId];
+    const league = getLeague(s.leagueId);
     const myRow = sorted[rank - 1] || { won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0 };
 
     // League Champion & Prize
@@ -893,8 +1075,8 @@
     s.budget += prize;
 
     if (rank === 1) {
-      s.trophies.push({ year: s.year, name: league.name, club: bridge.r6.clubMap[s.clubId].localName });
-      s.news.unshift(`🏆 ${s.year} ${league.name} 우승!! 구단 역사에 길이 남을 시즌입니다!`);
+      s.trophies.push({ year: s.year, name: league.name, club: myClub.localName });
+      s.news.unshift(`🏆 ${s.year} ${league.name} 우승!! 역사에 길이 남을 시즌입니다!`);
       s.boardTrust = clamp(s.boardTrust + 15, 0, 100);
       s.fanSupport = clamp(s.fanSupport + 15, 0, 100);
     } else {
@@ -938,17 +1120,18 @@
       const retireeIds = new Set(retirees.map((x) => x.id));
       s.squad = s.squad.filter((p) => !retireeIds.has(p.id));
       for (const r of retirees) {
-        const youthRep = makePlayer(r.pos, clamp(58 + s.facilities.youth * 2, 55, 82), bridge.r6.clubMap[s.clubId].country, {
+        const youthRep = makePlayer(r.pos, clamp(58 + s.facilities.youth * 2, 55, 82), myClub.country, {
           age: 17,
           pot: clamp(75 + s.facilities.youth * 2 + randInt(0, 8), 75, 99),
+          forceNationality: !!myClub.isNational,
         });
         s.squad.push(youthRep);
-        s.news.unshift(`${r.name} 선수가 은퇴하고 유스 ${youthRep.name}(17세)가 합류했습니다.`);
+        s.news.unshift(`${r.name} 선수가 은퇴하고 신예 ${youthRep.name}(17세)가 합류했습니다.`);
       }
     }
 
-    // Promotion / Relegation check within country
-    const sameCountry = bridge.r6.leagues.filter((l) => l.country === league.country);
+    // Promotion / Relegation check within country / national league group
+    const sameCountry = getAllLeagues().filter((l) => l.country === league.country);
     const upperLeague = sameCountry.find((l) => l.tier === league.tier - 1);
     const lowerLeague = sameCountry.find((l) => l.tier === league.tier + 1);
     let movedToLeagueId = s.leagueId;
@@ -977,7 +1160,7 @@
     s.history.unshift({
       year: s.year,
       clubId: s.clubId,
-      clubName: bridge.r6.clubMap[s.clubId].localName,
+      clubName: myClub.localName,
       leagueName: league.name,
       rank,
       points: myRow.points,
@@ -988,33 +1171,37 @@
     });
 
     s.nextLeagueId = movedToLeagueId;
-    s.nextContinentalQualified = bridge.r6.leagueMap[movedToLeagueId].tier === 1 && (rank <= 4 || s.leagueId !== movedToLeagueId && rank <= 2);
+    s.nextContinentalQualified = myClub.isNational
+      ? getLeague(movedToLeagueId).tier === 1 || rank <= 2
+      : getLeague(movedToLeagueId).tier === 1 && (rank <= 4 || (s.leagueId !== movedToLeagueId && rank <= 2));
 
-    // Generate manager offers from stronger clubs if performing well
+    // Generate manager offers from stronger clubs / national teams if performing well
     if (rank <= 4 || s.cup?.winner === s.clubId) {
-      const myClubStr = bridge.r6.clubMap[s.clubId]?.strength || 65;
-      const candidates = bridge.r6.clubs
+      const myClubStr = myClub?.strength || 65;
+      const offerPool = myClub.isNational ? NT_TEAMS : bridge.r6.clubs;
+      const candidates = offerPool
         .filter((c) => c.id !== s.clubId && (c.strength || 60) >= myClubStr - 2 && (c.strength || 60) <= myClubStr + 14)
         .sort(() => Math.random() - 0.5)
         .slice(0, 3);
       s.managerOffers = candidates.map((c) => ({
         clubId: c.id,
         clubName: c.localName,
-        leagueName: bridge.r6.leagueMap[c.league]?.name || c.league,
+        leagueName: getLeague(c.league)?.name || c.league,
         strength: c.strength || 70,
       }));
     }
   }
 
   function startNextSeason(s, newClubId = null) {
-    const bridge = getBridge();
     s.year++;
-    if (newClubId && bridge.r6.clubMap[newClubId]) {
-      const club = bridge.r6.clubMap[newClubId];
+    if (newClubId && getClub(newClubId)) {
+      const club = getClub(newClubId);
       s.clubId = club.id;
+      s.isNational = !!club.isNational;
       s.leagueId = Object.keys(s.worldLeagues).find((lid) => s.worldLeagues[lid].includes(club.id)) || club.league;
       if (!s.worldLeagues[s.leagueId]) {
-        const sameCountry = bridge.r6.leagues.filter((l) => l.country === club.country);
+        const leagueCountryKey = club.isNational ? club.nationalLeagueGroup : club.country;
+        const sameCountry = getAllLeagues().filter((l) => l.country === leagueCountryKey);
         for (const l of sameCountry) s.worldLeagues[l.id] = [...l.clubIds];
       }
       s.squad = generateSquadForClub(club);
@@ -1023,8 +1210,11 @@
       s.facilities = { stadium: facLv, training: facLv, youth: facLv, medical: facLv, scouting: facLv };
       s.boardTrust = 75;
       s.fanSupport = 75;
-      s.news.unshift(`새 구단 ${club.localName}의 감독으로 부임하여 ${s.year} 시즌을 시작합니다!`);
-      setupSeasonCompetitions(s, bridge.r6.leagueMap[s.leagueId].tier === 1 && (club.strength || 60) >= 75);
+      s.news.unshift(`새 팀 ${club.localName}의 감독으로 부임하여 ${s.year} 시즌을 시작합니다!`);
+      const contQual = club.isNational
+        ? getLeague(s.leagueId).tier === 1
+        : getLeague(s.leagueId).tier === 1 && (club.strength || 60) >= 75;
+      setupSeasonCompetitions(s, contQual);
     } else {
       s.leagueId = s.nextLeagueId || s.leagueId;
       autoPickStarters(s.squad, s.formation);
@@ -1084,8 +1274,8 @@
     }
 
     const bridge = getBridge();
-    const club = bridge.r6.clubMap[state.clubId];
-    const league = bridge.r6.leagueMap[state.leagueId];
+    const club = getClub(state.clubId);
+    const league = getLeague(state.leagueId);
     const teamStats = computeTeamStats(state);
 
     root.innerHTML = `
@@ -1101,7 +1291,7 @@
           <div class="gm-appbar-actions">
             <span class="gm-badge">OVR ${teamStats.total}</span>
             <button type="button" class="gm-btn-sm" id="gm-save-mgr-btn">💾 저장·불러오기</button>
-            <button type="button" class="gm-btn-sm" id="gm-new-career">새 구단</button>
+            <button type="button" class="gm-btn-sm" id="gm-new-career">${club?.isNational ? "새 팀" : "새 구단"}</button>
             <button type="button" class="gm-btn-sm is-primary" id="gm-to-player">⚽ 선수 모드</button>
           </div>
         </header>
@@ -1111,10 +1301,10 @@
         <nav class="gm-bottom-nav">
           <button type="button" class="gm-nav-btn ${activeNav === "home" ? "is-active" : ""}" data-nav="home"><span class="gm-nav-ico">🏠</span>홈·경기</button>
           <button type="button" class="gm-nav-btn ${activeNav === "squad" ? "is-active" : ""}" data-nav="squad"><span class="gm-nav-ico">📋</span>선수·전술</button>
-          <button type="button" class="gm-nav-btn ${activeNav === "market" ? "is-active" : ""}" data-nav="market"><span class="gm-nav-ico">🔁</span>이적·유스</button>
-          <button type="button" class="gm-nav-btn ${activeNav === "facilities" ? "is-active" : ""}" data-nav="facilities"><span class="gm-nav-ico">🏟️</span>시설·재정</button>
+          <button type="button" class="gm-nav-btn ${activeNav === "market" ? "is-active" : ""}" data-nav="market"><span class="gm-nav-ico">${club?.isNational ? "📣" : "🔁"}</span>${club?.isNational ? "차출·발탁" : "이적·유스"}</button>
+          <button type="button" class="gm-nav-btn ${activeNav === "facilities" ? "is-active" : ""}" data-nav="facilities"><span class="gm-nav-ico">🏟️</span>${club?.isNational ? "협회·시설" : "시설·재정"}</button>
           <button type="button" class="gm-nav-btn ${activeNav === "league" ? "is-active" : ""}" data-nav="league"><span class="gm-nav-ico">🏆</span>순위·기록</button>
-          <button type="button" class="gm-nav-btn ${activeNav === "editor" ? "is-active" : ""}" data-nav="editor"><span class="gm-nav-ico">⚡</span>구단치트</button>
+          <button type="button" class="gm-nav-btn ${activeNav === "editor" ? "is-active" : ""}" data-nav="editor"><span class="gm-nav-ico">⚡</span>${club?.isNational ? "치트·이동" : "구단치트"}</button>
         </nav>
       </div>
     `;
@@ -1148,40 +1338,62 @@
 
   function renderSetup(root) {
     const bridge = getBridge();
-    const clubs = bridge?.r6?.clubs || [];
+    const isNatMode = setupDraft.teamType === "national";
+    const clubs = isNatMode ? NT_TEAMS : bridge?.r6?.clubs || [];
     const countries = bridge?.r6?.countries || [];
-    const leagueMap = bridge?.r6?.leagueMap || {};
 
     const q = setupDraft.clubQuery.trim().toLowerCase();
-    const filteredClubs = clubs
-      .filter((c) => {
+    const filteredClubs = clubs.filter((c) => {
+      if (isNatMode) {
+        if (setupDraft.countryFilter !== "all" && c.confederation !== setupDraft.countryFilter) return false;
+      } else {
         if (setupDraft.countryFilter !== "all" && c.country !== setupDraft.countryFilter) return false;
-        if (!q) return true;
-        return (
-          c.localName?.toLowerCase().includes(q) ||
-          c.name?.toLowerCase().includes(q) ||
-          leagueMap[c.league]?.name?.toLowerCase().includes(q)
-        );
-      })
-      .sort((a, b) => (a.strength || 60) - (b.strength || 60));
+      }
+      if (!q) return true;
+      const lg = getLeague(c.league);
+      return (
+        c.localName?.toLowerCase().includes(q) ||
+        c.name?.toLowerCase().includes(q) ||
+        lg?.name?.toLowerCase().includes(q)
+      );
+    });
+    if (!isNatMode) {
+      filteredClubs.sort((a, b) => (a.strength || 60) - (b.strength || 60));
+    } else {
+      filteredClubs.sort((a, b) => (a.country === "kr" ? -1 : b.country === "kr" ? 1 : (b.strength || 60) - (a.strength || 60)));
+    }
 
-    // Show top/weak or matching clubs (limit 40)
-    const displayClubs = q || setupDraft.countryFilter !== "all" ? filteredClubs.slice(0, 40) : [...clubs].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, 30);
+    // Show top/weak or matching clubs
+    const displayClubs =
+      isNatMode || q || setupDraft.countryFilter !== "all"
+        ? filteredClubs.slice(0, 60)
+        : [...clubs].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, 30);
 
-    const countryOpts = [
-      `<option value="all">전체 국가 (${clubs.length}개 구단)</option>`,
-      ...countries.map((c) => `<option value="${c.code}" ${setupDraft.countryFilter === c.code ? "selected" : ""}>${escapeHtml(c.name)}</option>`),
-    ].join("");
+    const countryOpts = isNatMode
+      ? [
+          `<option value="all">전체 대륙 (${NT_TEAMS.length}개 대표팀)</option>`,
+          `<option value="AFC" ${setupDraft.countryFilter === "AFC" ? "selected" : ""}>🌏 아시아 (AFC)</option>`,
+          `<option value="UEFA" ${setupDraft.countryFilter === "UEFA" ? "selected" : ""}>🇪🇺 유럽 (UEFA)</option>`,
+          `<option value="CONMEBOL" ${setupDraft.countryFilter === "CONMEBOL" ? "selected" : ""}>🌎 남미 (CONMEBOL)</option>`,
+          `<option value="CONCACAF" ${setupDraft.countryFilter === "CONCACAF" ? "selected" : ""}>🌎 북중미 (CONCACAF)</option>`,
+          `<option value="CAF" ${setupDraft.countryFilter === "CAF" ? "selected" : ""}>🌍 아프리카 (CAF)</option>`,
+        ].join("")
+      : [
+          `<option value="all">전체 국가 (${clubs.length}개 구단)</option>`,
+          ...countries.map((c) => `<option value="${c.code}" ${setupDraft.countryFilter === c.code ? "selected" : ""}>${escapeHtml(c.name)}</option>`),
+        ].join("");
 
     const natOpts = countries
       .map((c) => `<option value="${c.code}" ${setupDraft.nationality === c.code ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
       .join("");
 
+    const selectedObj = getClub(setupDraft.clubId);
+
     root.innerHTML = `
       <div class="gm-shell">
         <header class="gm-appbar">
           <div class="gm-appbar-left">
-            <h1>👔 감독 모드 : 구단 키우기</h1>
+            <h1>👔 감독 모드 : 구단 · 국가대표 키우기</h1>
             <span class="gm-badge is-blue">새 커리어</span>
           </div>
           <div class="gm-appbar-actions">
@@ -1219,30 +1431,34 @@
 
           <section class="gm-card">
             <div class="gm-card-head">
-              <h2>2. 부임할 구단 선택 (2,155개 실존 구단)</h2>
-              <span class="gm-badge">현재 선택: ${escapeHtml(bridge?.r6?.clubMap?.[setupDraft.clubId]?.localName || setupDraft.clubId)}</span>
+              <h2>2. 부임할 팀 선택</h2>
+              <span class="gm-badge">현재 선택: ${escapeHtml(selectedObj?.localName || setupDraft.clubId)}</span>
+            </div>
+            <div class="gm-btn-row">
+              <button type="button" class="gm-btn ${!isNatMode ? "is-primary" : ""}" id="gm-type-club">🏟️ 클럽 구단 (${bridge?.r6?.clubs?.length || 2155}개)</button>
+              <button type="button" class="gm-btn ${isNatMode ? "is-blue" : ""}" id="gm-type-national">🌍 국가대표팀 (${NT_TEAMS.length}개국)</button>
             </div>
             <div class="gm-grid-2">
               <div class="gm-field">
-                <label>국가 필터</label>
+                <label>${isNatMode ? "대륙 연맹 필터" : "국가 필터"}</label>
                 <select class="gm-select" id="gm-set-country">${countryOpts}</select>
               </div>
               <div class="gm-field">
-                <label>구단 / 리그 검색</label>
-                <input type="search" class="gm-input" id="gm-set-query" placeholder="예: 서울, 전북, 아스널, 4부리그..." value="${escapeHtml(setupDraft.clubQuery)}" />
+                <label>${isNatMode ? "국가대표팀 검색" : "구단 / 리그 검색"}</label>
+                <input type="search" class="gm-input" id="gm-set-query" placeholder="${isNatMode ? "예: 대한민국, 일본, 브라질, 잉글랜드..." : "예: 서울, 전북, 아스널, 4부리그..."}" value="${escapeHtml(setupDraft.clubQuery)}" />
               </div>
             </div>
             <div class="gm-list" style="max-height:280px;overflow-y:auto;">
               ${displayClubs
                 .map((c) => {
-                  const lg = leagueMap[c.league];
+                  const lg = getLeague(c.league);
                   const selected = setupDraft.clubId === c.id;
                   return `
                     <div class="gm-list-item ${selected ? "is-starter" : ""}">
                       <div class="gm-player-main">
                         ${clubLogoHtml(c.id, true)}
                         <div class="gm-player-info">
-                          <div class="gm-player-name">${escapeHtml(c.localName)} <span class="gm-badge">${lg?.tier || 1}부 · 전력 ${c.strength || 60}</span></div>
+                          <div class="gm-player-name">${escapeHtml(c.localName)} <span class="gm-badge">${c.isNational ? escapeHtml(c.confederation) : (lg?.tier || 1) + "부"} · 전력 ${c.strength || 60}</span></div>
                           <div class="gm-player-sub">${escapeHtml(lg?.name || c.league)} · ${escapeHtml(c.name)}</div>
                         </div>
                       </div>
@@ -1252,7 +1468,7 @@
                 })
                 .join("")}
             </div>
-            <button type="button" class="gm-btn is-primary" id="gm-start-btn" style="margin-top:4px;">🚀 ${escapeHtml(bridge?.r6?.clubMap?.[setupDraft.clubId]?.localName || "구단")} 감독 부임하기</button>
+            <button type="button" class="gm-btn is-primary" id="gm-start-btn" style="margin-top:4px;">🚀 ${escapeHtml(selectedObj?.localName || "구단")} 감독 부임하기</button>
           </section>
         </main>
       </div>
@@ -1261,6 +1477,20 @@
     document.getElementById("gm-to-player").addEventListener("click", exitManagerMode);
     document.getElementById("gm-setup-save-btn").addEventListener("click", () => {
       if (window.__KICKRU_SAVE__) window.__KICKRU_SAVE__.open("all");
+    });
+    document.getElementById("gm-type-club").addEventListener("click", () => {
+      setupDraft.teamType = "club";
+      setupDraft.countryFilter = "all";
+      setupDraft.clubQuery = "";
+      if (getClub(setupDraft.clubId)?.isNational) setupDraft.clubId = "kr-fc-seoul";
+      render();
+    });
+    document.getElementById("gm-type-national").addEventListener("click", () => {
+      setupDraft.teamType = "national";
+      setupDraft.countryFilter = "all";
+      setupDraft.clubQuery = "";
+      if (!getClub(setupDraft.clubId)?.isNational) setupDraft.clubId = "nt-kr";
+      render();
     });
     document.getElementById("gm-set-name").addEventListener("input", (e) => {
       setupDraft.managerName = e.target.value;
@@ -1303,15 +1533,14 @@
   }
 
   function renderHomeTab(main, teamStats) {
-    const bridge = getBridge();
-    const club = bridge.r6.clubMap[state.clubId];
-    const league = bridge.r6.leagueMap[state.leagueId];
+    const club = getClub(state.clubId);
+    const league = getLeague(state.leagueId);
     const sorted = sortTable(state.table);
     const rank = sorted.findIndex((r) => r.clubId === state.clubId) + 1;
     const totalRounds = state.schedule.length;
     const nextMatch = state.schedule[state.round]?.find((m) => m.home === state.clubId || m.away === state.clubId);
     const nextOppId = nextMatch ? (nextMatch.home === state.clubId ? nextMatch.away : nextMatch.home) : null;
-    const nextOppName = nextOppId ? bridge.r6.clubMap[nextOppId]?.localName : null;
+    const nextOppName = nextOppId ? getClub(nextOppId)?.localName : null;
 
     main.innerHTML = `
       <section class="gm-card">
@@ -1598,26 +1827,45 @@
 
   function renderMarketTab(main) {
     const bridge = getBridge();
+    const curClub = getClub(state.clubId);
+    const isNat = !!curClub?.isNational;
     const clubs = bridge.r6.clubs;
     const q = marketQuery.trim().toLowerCase();
     const searchedClubs = q
       ? clubs.filter((c) => c.localName?.toLowerCase().includes(q) || c.name?.toLowerCase().includes(q)).slice(0, 12)
       : [];
+    const lifePlayer = bridge?.life?.core?.player || null;
+    const lifeOvr =
+      lifePlayer && window.__KICKRU_EDITOR__?.calcOvr ? window.__KICKRU_EDITOR__.calcOvr(lifePlayer) : lifePlayer ? 75 : 0;
 
     main.innerHTML = `
+      ${
+        isNat && lifePlayer
+          ? `<section class="gm-card" style="border-color:var(--gm-blue);background:var(--gm-blue-soft);">
+              <div class="gm-card-head">
+                <h2>⭐ 선수 모드 캐릭터 국가대표 즉시 발탁</h2>
+                <span class="gm-badge is-blue">OVR ${lifeOvr}</span>
+              </div>
+              <div style="font-size:12px;color:var(--gm-sub);">
+                현재 선수 모드 커리어의 <b>${escapeHtml(lifePlayer.name)}</b> (${lifePlayer.age}세 · ${lifePlayer.position} · OVR ${lifeOvr}) 선수를 대표팀 명단에 합류시킵니다.
+              </div>
+              <button type="button" class="gm-btn is-blue" id="gm-callup-user-player">📢 ${escapeHtml(lifePlayer.name)} 대표팀 발탁하기</button>
+            </section>`
+          : ""
+      }
       <section class="gm-card">
         <div class="gm-card-head">
-          <h2>🌱 유스 아카데미 콜업</h2>
+          <h2>${isNat ? "🌱 U-23 / U-20 청소년 대표 콜업" : "🌱 유스 아카데미 콜업"}</h2>
           <span class="gm-badge">남은 콜업: ${state.youthPullsRemaining}회 (유스 Lv.${state.facilities.youth})</span>
         </div>
-        <p style="margin:0;font-size:12px;color:var(--gm-sub);">유스 아카데미 레벨이 높을수록 더 높은 초기 OVR과 잠재력(최대 99)을 가진 유망주가 발굴됩니다.</p>
-        <button type="button" class="gm-btn is-primary" id="gm-pull-youth" ${state.youthPullsRemaining <= 0 ? "disabled" : ""}>🌱 유망주 1군 콜업하기 (무료)</button>
+        <p style="margin:0;font-size:12px;color:var(--gm-sub);">${isNat ? "유스 육성 레벨이 높을수록 더 뛰어난 자국 연령별 대표 유망주가 A대표팀에 발탁됩니다." : "유스 아카데미 레벨이 높을수록 더 높은 초기 OVR과 잠재력(최대 99)을 가진 유망주가 발굴됩니다."}</p>
+        <button type="button" class="gm-btn is-primary" id="gm-pull-youth" ${state.youthPullsRemaining <= 0 ? "disabled" : ""}>🌱 ${isNat ? "청소년 대표 유망주 발탁하기 (무료)" : "유망주 1군 콜업하기 (무료)"}</button>
       </section>
 
       <section class="gm-card">
         <div class="gm-card-head">
-          <h2>🔁 이적시장 매물 (스카우팅 Lv.${state.facilities.scouting})</h2>
-          <button type="button" class="gm-btn-sm" id="gm-refresh-market">🔄 스카우트 새로고침</button>
+          <h2>${isNat ? "📣 국내·해외파 자국 선수 차출 풀" : "🔁 이적시장 매물"} (스카우팅 Lv.${state.facilities.scouting})</h2>
+          <button type="button" class="gm-btn-sm" id="gm-refresh-market">🔄 ${isNat ? "차출 명단 새로고침" : "스카우트 새로고침"}</button>
         </div>
         <div class="gm-list">
           ${state.market
@@ -1636,7 +1884,7 @@
                     </div>
                   </div>
                   <button type="button" class="gm-mini-btn is-active" data-buy-player="${p.id}" ${!canAfford ? "disabled" : ""}>
-                    ${p.isFreeAgent ? "FA 영입" : formatMoney(p.price)}
+                    ${isNat ? "대표팀 차출" : p.isFreeAgent ? "FA 영입" : formatMoney(p.price)}
                   </button>
                 </div>
               `;
@@ -1647,7 +1895,7 @@
 
       <section class="gm-card">
         <div class="gm-card-head">
-          <h3>🔍 타 구단 에이스 특별 스카우트</h3>
+          <h3>${isNat ? "🌟 해외파 · 클럽 소속 자국 에이스 특별 차출" : "🔍 타 구단 에이스 특별 스카우트"}</h3>
         </div>
         <input type="search" class="gm-input" id="gm-scout-search" placeholder="구단 검색 (예: 레알 마드리드, 맨시티, 전북...)" value="${escapeHtml(marketQuery)}" />
         ${
@@ -1656,26 +1904,53 @@
                 ${searchedClubs
                   .map((c) => {
                     const estOvr = clamp((c.strength || 70) + 4, 58, 94);
-                    const estPrice = estimatePlayerValue(estOvr, 24, estOvr + 3);
+                    const estPrice = isNat ? 0 : estimatePlayerValue(estOvr, 24, estOvr + 3);
                     return `
                       <div class="gm-list-item">
                         <div class="gm-player-main">
                           ${clubLogoHtml(c.id, true)}
                           <div class="gm-player-info">
-                            <div class="gm-player-name">${escapeHtml(c.localName)} 에이스 영입 (OVR ${estOvr})</div>
-                            <div class="gm-player-sub">예상 이적료 ${formatMoney(estPrice)}</div>
+                            <div class="gm-player-name">${escapeHtml(c.localName)} ${isNat ? "자국 해외파" : "에이스 영입"} (OVR ${estOvr})</div>
+                            <div class="gm-player-sub">${isNat ? "이적료 무료 · 즉시 소집" : "예상 이적료 " + formatMoney(estPrice)}</div>
                           </div>
                         </div>
-                        <button type="button" class="gm-mini-btn is-active" data-poach-club="${c.id}" ${state.budget < estPrice ? "disabled" : ""}>영입</button>
+                        <button type="button" class="gm-mini-btn is-active" data-poach-club="${c.id}" ${state.budget < estPrice ? "disabled" : ""}>${isNat ? "차출" : "영입"}</button>
                       </div>
                     `;
                   })
                   .join("")}
               </div>`
-            : `<div style="font-size:12px;color:var(--gm-muted);">구단 이름을 입력하면 해당 구단의 핵심 선수를 즉시 영입할 수 있습니다.</div>`
+            : `<div style="font-size:12px;color:var(--gm-muted);">${isNat ? "구단 이름을 입력하면 해당 구단 스타일의 자국 국적 선수를 즉시 차출합니다." : "구단 이름을 입력하면 해당 구단의 핵심 선수를 즉시 영입할 수 있습니다."}</div>`
         }
       </section>
     `;
+
+    document.getElementById("gm-callup-user-player")?.addEventListener("click", () => {
+      if (!lifePlayer) return;
+      const existing = state.squad.find((x) => x.isUserPlayer || x.name === lifePlayer.name);
+      if (existing) {
+        existing.ovr = clamp(Math.round(lifeOvr), 42, 99);
+        existing.pot = clamp(Math.round(lifePlayer.potential || 99), existing.ovr, 99);
+        existing.age = Math.round(lifePlayer.age || existing.age);
+        existing.pos = lifePlayer.position || existing.pos;
+        existing.stamina = 100;
+        existing.starter = true;
+      } else {
+        const summoned = makePlayer(lifePlayer.position || "ST", lifeOvr, curClub.country, {
+          name: lifePlayer.name,
+          age: Math.round(lifePlayer.age || 20),
+          ovr: clamp(Math.round(lifeOvr), 42, 99),
+          pot: clamp(Math.round(lifePlayer.potential || 99), Math.round(lifeOvr), 99),
+          forceNationality: true,
+        });
+        summoned.isUserPlayer = true;
+        state.squad.unshift(summoned);
+      }
+      state.news.unshift(`⭐ ${lifePlayer.name}(OVR ${lifeOvr}) 선수가 ${curClub.localName}에 소집되었습니다!`);
+      saveState();
+      render();
+      showToast(`${lifePlayer.name} 국가대표 소집 완료!`);
+    });
 
     document.getElementById("gm-pull-youth").addEventListener("click", () => {
       if (state.youthPullsRemaining <= 0) return;
@@ -1683,10 +1958,10 @@
       const yLv = state.facilities.youth || 1;
       const ovr = clamp(54 + yLv * 2 + randInt(-2, 5), 52, 85);
       const pot = clamp(76 + yLv * 2 + randInt(0, 12), ovr + 5, 99);
-      const country = bridge.r6.clubMap[state.clubId]?.country || "kr";
-      const youth = makePlayer(pick(POS_LIST), ovr, country, { age: randInt(16, 18), ovr, pot });
+      const country = curClub?.country || "kr";
+      const youth = makePlayer(pick(POS_LIST), ovr, country, { age: randInt(16, 18), ovr, pot, forceNationality: isNat });
       state.squad.push(youth);
-      state.news.unshift(`🌱 유스 아카데미에서 ${youth.name}(${youth.pos}, OVR ${youth.ovr}/POT ${youth.pot})를 콜업했습니다!`);
+      state.news.unshift(`🌱 ${youth.name}(${youth.pos}, OVR ${youth.ovr}/POT ${youth.pot})를 대표 명단에 콜업했습니다!`);
       saveState();
       render();
       showToast(`유망주 ${youth.name} (POT ${youth.pot}) 콜업 완료!`);
@@ -1696,7 +1971,7 @@
       state.market = generateMarketPool(state);
       saveState();
       render();
-      showToast("새 이적시장 매물 리스트를 받아왔습니다.");
+      showToast("새로운 차출/이적 리스트를 불러왔습니다.");
     });
 
     main.querySelectorAll("[data-buy-player]").forEach((btn) => {
@@ -1714,10 +1989,10 @@
         delete p.fromClub;
         state.squad.push(p);
         state.market.splice(idx, 1);
-        state.news.unshift(`${p.name}(${p.pos}, OVR ${p.ovr}) 선수를 영입했습니다!`);
+        state.news.unshift(`${p.name}(${p.pos}, OVR ${p.ovr}) 선수가 합류했습니다!`);
         saveState();
         render();
-        showToast(`${p.name} 영입 완료!`);
+        showToast(`${p.name} 합류 완료!`);
       });
     });
 
@@ -1733,25 +2008,26 @@
 
     main.querySelectorAll("[data-poach-club]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const c = bridge.r6.clubMap[btn.dataset.poachClub];
+        const c = getClub(btn.dataset.poachClub);
         if (!c) return;
         const estOvr = clamp((c.strength || 70) + 4, 58, 94);
-        const estPrice = estimatePlayerValue(estOvr, 24, estOvr + 3);
+        const estPrice = isNat ? 0 : estimatePlayerValue(estOvr, 24, estOvr + 3);
         if (state.budget < estPrice) {
           showToast("구단 예산이 부족합니다.");
           return;
         }
         state.budget -= estPrice;
-        const ace = makePlayer(pick(["ST", "LW", "CAM", "CM", "CB"]), estOvr, c.country, {
+        const ace = makePlayer(pick(["ST", "LW", "CAM", "CM", "CB"]), estOvr, isNat ? curClub.country : c.country, {
           age: randInt(21, 27),
           ovr: estOvr,
           pot: clamp(estOvr + 3, estOvr, 99),
+          forceNationality: isNat,
         });
         state.squad.push(ace);
-        state.news.unshift(`💎 ${c.localName}의 에이스 ${ace.name}(OVR ${ace.ovr})을 ${formatMoney(estPrice)}에 영입했습니다!`);
+        state.news.unshift(`💎 ${c.localName} 스타일 에이스 ${ace.name}(OVR ${ace.ovr}) 선수가 합류했습니다!`);
         saveState();
         render();
-        showToast(`${c.localName} 에이스 ${ace.name} 영입!`);
+        showToast(`${ace.name} 합류 완료!`);
       });
     });
   }
@@ -1816,8 +2092,7 @@
   }
 
   function renderLeagueTab(main) {
-    const bridge = getBridge();
-    const league = bridge.r6.leagueMap[state.leagueId];
+    const league = getLeague(state.leagueId);
     const sorted = sortTable(state.table);
     const totalGames = state.manager.wins + state.manager.draws + state.manager.losses;
     const winRate = totalGames ? ((state.manager.wins / totalGames) * 100).toFixed(1) : "0.0";
@@ -1831,13 +2106,13 @@
         <div class="gm-table-wrap">
           <table class="gm-table">
             <thead>
-              <tr><th>#</th><th style="text-align:left;">구단</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr>
+              <tr><th>#</th><th style="text-align:left;">팀</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr>
             </thead>
             <tbody>
               ${sorted
                 .map((row, idx) => {
                   const pos = idx + 1;
-                  const c = bridge.r6.clubMap[row.clubId];
+                  const c = getClub(row.clubId);
                   const isMe = row.clubId === state.clubId;
                   const zoneCls = pos <= 2 ? "is-zone-up" : pos >= sorted.length - 1 ? "is-zone-down" : "";
                   return `
@@ -1895,17 +2170,21 @@
   }
 
   function renderEditorTab(main) {
-    const bridge = getBridge();
-    const clubs = bridge.r6.clubs;
+    const curClub = getClub(state.clubId);
+    const clubs = getAllClubs(moveTeamFilter);
     const q = moveClubQuery.trim().toLowerCase();
     const moveTargets = q
-      ? clubs.filter((c) => c.localName?.toLowerCase().includes(q) || c.name?.toLowerCase().includes(q)).slice(0, 15)
-      : [...clubs].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, 10);
+      ? clubs
+          .filter((c) => c.localName?.toLowerCase().includes(q) || c.name?.toLowerCase().includes(q))
+          .slice(0, 20)
+      : moveTeamFilter === "national"
+      ? NT_TEAMS.slice(0, 25)
+      : [...clubs].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, 12);
 
     main.innerHTML = `
       <section class="gm-card">
         <div class="gm-card-head">
-          <h2>⚡ 구단 · 선수단 치트 & 에디터</h2>
+          <h2>⚡ 팀 · 선수단 치트 & 에디터</h2>
           <span class="gm-badge">즉시 반영</span>
         </div>
         <div class="gm-btn-row">
@@ -1920,8 +2199,8 @@
         </div>
         <div class="gm-grid-2">
           <div class="gm-field">
-            <label>구단 예산 직접 수정 (원)</label>
-            <input type="number" class="gm-input" id="gm-ch-budget-inp" value="${Math.round(state.budget)}" />
+            <label>예산 직접 수정 (원)</label>
+            <input type="number" class="ke-input gm-input" id="gm-ch-budget-inp" value="${Math.round(state.budget)}" />
           </div>
           <div class="gm-field" style="justify-content:flex-end;">
             <button type="button" class="gm-btn is-primary" id="gm-ch-budget-apply">예산 적용</button>
@@ -1959,9 +2238,17 @@
       </section>
 
       <section class="gm-card">
-        <div class="gm-card-head"><h3>✈️ 감독 구단 즉시 부임 / 이동</h3></div>
-        <input type="search" class="gm-input" id="gm-move-search" placeholder="부임할 구단 검색..." value="${escapeHtml(moveClubQuery)}" />
-        <div class="gm-list" style="max-height:220px;overflow-y:auto;">
+        <div class="gm-card-head">
+          <h3>✈️ 감독 구단 · 국가대표 즉시 부임 / 이동</h3>
+          <button type="button" class="gm-btn-sm is-primary" data-move-club="nt-kr">🇰🇷 대한민국 국가대표 부임</button>
+        </div>
+        <div class="gm-btn-row">
+          <button type="button" class="gm-btn-sm ${moveTeamFilter === "all" ? "is-primary" : ""}" data-move-filter="all">전체</button>
+          <button type="button" class="gm-btn-sm ${moveTeamFilter === "national" ? "is-primary" : ""}" data-move-filter="national">🌍 국가대표팀만 (${NT_TEAMS.length})</button>
+          <button type="button" class="gm-btn-sm ${moveTeamFilter === "club" ? "is-primary" : ""}" data-move-filter="club">🏟️ 클럽 구단만</button>
+        </div>
+        <input type="search" class="gm-input" id="gm-move-search" placeholder="부임할 국가대표 또는 구단 검색 (예: 대한민국, 일본, 아스널)..." value="${escapeHtml(moveClubQuery)}" />
+        <div class="gm-list" style="max-height:240px;overflow-y:auto;">
           ${moveTargets
             .map(
               (c) => `
@@ -1970,7 +2257,7 @@
                     ${clubLogoHtml(c.id, true)}
                     <div class="gm-player-info">
                       <div class="gm-player-name">${escapeHtml(c.localName)} (전력 ${c.strength || 60})</div>
-                      <div class="gm-player-sub">${escapeHtml(bridge.r6.leagueMap[c.league]?.name || c.league)}</div>
+                      <div class="gm-player-sub">${escapeHtml(getLeague(c.league)?.name || c.league)}</div>
                     </div>
                   </div>
                   <button type="button" class="gm-mini-btn is-active" data-move-club="${c.id}">즉시 부임</button>
@@ -2042,11 +2329,17 @@
       const age = clamp(Math.round(Number(document.getElementById("gm-newp-age").value || 19)), 16, 40);
       const ovr = clamp(Math.round(Number(document.getElementById("gm-newp-ovr").value || 90)), 40, 99);
       const pot = clamp(Math.round(Number(document.getElementById("gm-newp-pot").value || 99)), ovr, 99);
-      const np = makePlayer(pos, ovr, bridge.r6.clubMap[state.clubId]?.country || "kr", { name, age, ovr, pot });
+      const np = makePlayer(pos, ovr, curClub?.country || "kr", { name, age, ovr, pot, forceNationality: !!curClub?.isNational });
       state.squad.push(np);
       saveState();
       render();
       showToast(`${np.name}(${pos}, OVR ${ovr}) 선수단에 추가!`);
+    });
+    main.querySelectorAll("[data-move-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        moveTeamFilter = btn.dataset.moveFilter;
+        render();
+      });
     });
     document.getElementById("gm-move-search").addEventListener("input", (e) => {
       moveClubQuery = e.target.value;
@@ -2196,9 +2489,9 @@
 
     const mySide = match.home === s.clubId ? "home" : "away";
     const oppId = mySide === "home" ? match.away : match.home;
-    const myClub = bridge.r6.clubMap[s.clubId];
-    const oppClub = bridge.r6.clubMap[oppId] || { id: oppId, localName: oppId, strength: 65, country: "intl" };
-    const league = bridge.r6.leagueMap[s.leagueId];
+    const myClub = getClub(s.clubId);
+    const oppClub = getClub(oppId) || { id: oppId, localName: oppId, strength: 65, country: "intl" };
+    const league = getLeague(s.leagueId);
 
     // Align our 11 starters to formation slots
     const slots = (FORMATIONS[s.formation] || FORMATIONS["4-3-3"]).slots;
@@ -2253,8 +2546,8 @@
       mySide,
       homeClubId: match.home,
       awayClubId: match.away,
-      homeName: bridge.r6.clubMap[match.home]?.localName || match.home,
-      awayName: bridge.r6.clubMap[match.away]?.localName || match.away,
+      homeName: getClub(match.home)?.localName || match.home,
+      awayName: getClub(match.away)?.localName || match.away,
       oppStrength: oppClub.strength || 65,
       compName: `${league?.name || ""} ${s.round + 1}R`,
       hg: 0,
@@ -3568,6 +3861,9 @@
       enter: enterManagerMode,
       exit: exitManagerMode,
       getState: () => state,
+      getClub,
+      getLeague,
+      getAllClubs,
       loadCareerState,
       saveState,
       getLiveMatch: () => liveMatch,

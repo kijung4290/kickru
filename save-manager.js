@@ -366,8 +366,8 @@
 
   function buildManagerMeta(st, isAuto = false) {
     const bridge = getBridge();
-    const club = bridge?.r6?.clubMap?.[st?.clubId];
-    const league = bridge?.r6?.leagueMap?.[st?.leagueId];
+    const club = window.__KICKRU_MANAGER__?.getClub ? window.__KICKRU_MANAGER__.getClub(st?.clubId) : bridge?.r6?.clubMap?.[st?.clubId];
+    const league = window.__KICKRU_MANAGER__?.getLeague ? window.__KICKRU_MANAGER__.getLeague(st?.leagueId) : bridge?.r6?.leagueMap?.[st?.leagueId];
     const stats = window.__KICKRU_MANAGER__?.computeTeamStats
       ? window.__KICKRU_MANAGER__.computeTeamStats(st)
       : { total: club?.strength || 70 };
@@ -577,7 +577,8 @@
     }
     const meta = buildManagerMeta(st, isAuto);
     const bridge = getBridge();
-    const clubLabel = bridge?.r6?.clubMap?.[st.clubId]?.localName || st.clubId;
+    const clubObj = window.__KICKRU_MANAGER__?.getClub ? window.__KICKRU_MANAGER__.getClub(st.clubId) : bridge?.r6?.clubMap?.[st.clubId];
+    const clubLabel = (clubObj?.localName || st.clubId).replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, "").trim();
     const slot = safeSlug(customName || clubLabel || "club");
     const filename = isAuto ? `autosave_manager_${safeSlug(st.clubId)}.json` : `manager_${slot}_${getTimestampTag()}.json`;
     return persistSave(meta, filename, isAuto);
@@ -593,7 +594,10 @@
     const cleanLife = life && window.__KICKRU_EDITOR__?.sanitizeLife ? window.__KICKRU_EDITOR__.sanitizeLife(life) : life;
     const parts = [];
     if (cleanLife) parts.push(`선수:${cleanLife.core.player.name}`);
-    if (st) parts.push(`구단:${getBridge()?.r6?.clubMap?.[st.clubId]?.localName || st.clubId}`);
+    if (st) {
+      const mClub = window.__KICKRU_MANAGER__?.getClub ? window.__KICKRU_MANAGER__.getClub(st.clubId) : getBridge()?.r6?.clubMap?.[st.clubId];
+      parts.push(`팀:${mClub?.localName || st.clubId}`);
+    }
     const meta = {
       kind: "bundle",
       title: customName || parts.join(" + ") || "통합 백업",
@@ -726,7 +730,12 @@
     const filtered = allItems.filter((it) => activeFilter === "all" || it.kind === activeFilter);
 
     const playerLabel = life ? `${life.core.player.name} (${life.core.player.age}세)` : "없음";
-    const clubLabel = mgrState ? (getBridge()?.r6?.clubMap?.[mgrState.clubId]?.localName || mgrState.clubId) : "없음";
+    const clubObj = mgrState
+      ? window.__KICKRU_MANAGER__?.getClub
+        ? window.__KICKRU_MANAGER__.getClub(mgrState.clubId)
+        : getBridge()?.r6?.clubMap?.[mgrState.clubId]
+      : null;
+    const clubLabel = mgrState ? clubObj?.localName || mgrState.clubId : "없음";
 
     body.innerHTML = `
       <div class="ks-card">

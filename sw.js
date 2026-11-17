@@ -1,4 +1,4 @@
-const CACHE_NAME = "kickru-edition-v5";
+const CACHE_NAME = "kickru-edition-v6";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
