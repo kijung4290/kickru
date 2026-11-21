@@ -1,57 +1,69 @@
 /* Kickru Manager Mode Styles ("강등권에서 트레블까지") */
 :root {
-  --gm-bg: #f4f6f8;
+  --gm-bg: #f6f8fb;
+  --gm-bg2: #eef3f9;
   --gm-card: #ffffff;
-  --gm-surface: #f1f4f7;
-  --gm-border: #e1e6ec;
-  --gm-text: #191f28;
-  --gm-sub: #4e5968;
-  --gm-muted: #8b95a1;
-  --gm-accent: #185548;
-  --gm-accent-soft: #e6f2ef;
-  --gm-blue: #3182f6;
-  --gm-blue-soft: #e8f3ff;
+  --gm-surface: #f0f4f8;
+  --gm-border: #e2e8ee;
+  --gm-text: #1a2128;
+  --gm-sub: #67718a;
+  --gm-muted: #93a0b4;
+  --gm-accent: #059669;
+  --gm-accent-soft: #ecfdf5;
+  --gm-blue: #3b82f6;
+  --gm-blue-soft: #eff6ff;
   --gm-gold: #d97706;
-  --gm-gold-soft: #fef3c7;
-  --gm-danger: #e11d48;
-  --gm-danger-soft: #ffe4e6;
+  --gm-gold-soft: #fffbeb;
+  --gm-danger: #dc2626;
+  --gm-danger-soft: #fef2f2;
+  --gm-radius: 14px;
+  --gm-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  --gm-blur: none;
 }
 
 html[data-theme="dark"] {
-  --gm-bg: #121417;
-  --gm-card: #1b1e23;
-  --gm-surface: #23272e;
-  --gm-border: #313742;
-  --gm-text: #f2f4f6;
-  --gm-sub: #b0b8c1;
-  --gm-muted: #7c8591;
-  --gm-accent: #22a085;
-  --gm-accent-soft: rgba(34, 160, 133, 0.16);
-  --gm-blue: #4593fc;
-  --gm-blue-soft: rgba(69, 147, 252, 0.16);
+  --gm-bg: #0f172a;
+  --gm-bg2: #1e293b;
+  --gm-card: #1e293b;
+  --gm-surface: #273547;
+  --gm-border: #334155;
+  --gm-text: #f1f5f9;
+  --gm-sub: #a4b1be;
+  --gm-muted: #7d8b9c;
+  --gm-accent: #22c55e;
+  --gm-accent-soft: #162218;
+  --gm-blue: #60a5fa;
+  --gm-blue-soft: #1e3a5c;
   --gm-gold: #fbbf24;
-  --gm-gold-soft: rgba(251, 191, 36, 0.16);
+  --gm-gold-soft: #3b2e08;
   --gm-danger: #fb7185;
-  --gm-danger-soft: rgba(251, 113, 133, 0.16);
+  --gm-danger-soft: #3f1616;
+  --gm-radius: 14px;
+  --gm-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --gm-blur: none;
 }
 
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
-    --gm-bg: #121417;
-    --gm-card: #1b1e23;
-    --gm-surface: #23272e;
-    --gm-border: #313742;
-    --gm-text: #f2f4f6;
-    --gm-sub: #b0b8c1;
-    --gm-muted: #7c8591;
-    --gm-accent: #22a085;
-    --gm-accent-soft: rgba(34, 160, 133, 0.16);
-    --gm-blue: #4593fc;
-    --gm-blue-soft: rgba(69, 147, 252, 0.16);
+    --gm-bg: #0f172a;
+    --gm-bg2: #1e293b;
+    --gm-card: #1e293b;
+    --gm-surface: #273547;
+    --gm-border: #334155;
+    --gm-text: #f1f5f9;
+    --gm-sub: #a4b1be;
+    --gm-muted: #7d8b9c;
+    --gm-accent: #22c55e;
+    --gm-accent-soft: #162218;
+    --gm-blue: #60a5fa;
+    --gm-blue-soft: #1e3a5c;
     --gm-gold: #fbbf24;
-    --gm-gold-soft: rgba(251, 191, 36, 0.16);
+    --gm-gold-soft: #3b2e08;
     --gm-danger: #fb7185;
-    --gm-danger-soft: rgba(251, 113, 133, 0.16);
+    --gm-danger-soft: #3f1616;
+    --gm-radius: 14px;
+    --gm-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    --gm-blur: none;
   }
 }
 
@@ -108,9 +120,35 @@ html[data-theme="dark"] {
 #gm-root {
   display: none;
   min-height: 100vh;
-  background: var(--gm-bg);
+  background: linear-gradient(180deg, var(--gm-bg2), var(--gm-bg) 70%);
   color: var(--gm-text);
   font-family: inherit;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: radial-gradient(1200px circle at 80% -10%, var(--gm-bg2), var(--gm-bg) 60%);
+  background-size: var(--gm-bg2) var(--gm-bg);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 body.is-manager-mode > *:not(#gm-root):not(#gm-toast):not(.gm-modal-backdrop):not(#ks-backdrop):not(#ks-toast) {
@@ -127,7 +165,7 @@ body.is-manager-mode #gm-root {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding-bottom: 84px;
+  padding-bottom: 88px;
 }
 
 .gm-appbar {
@@ -139,8 +177,45 @@ body.is-manager-mode #gm-root {
   justify-content: space-between;
   gap: 10px;
   padding: 12px 16px;
-  background: var(--gm-card);
+  background: linear-gradient(135deg, var(--gm-card), var(--gm-surface));
   border-bottom: 1px solid var(--gm-border);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+}
+
+.gm-appbar h1 {
+  color: var(--gm-text);
+}
+
+.gm-appbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gm-appbar-left h1 {
+  font-size: 15px;
+  font-weight: 850;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gm-appbar-sub {
+  font-size: 11px;
+  color: var(--gm-muted);
+  margin-top: 1px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gm-appbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .gm-appbar-left {
@@ -217,20 +292,21 @@ body.is-manager-mode #gm-root {
 }
 
 .gm-main {
-  padding: 14px 16px;
+  padding: 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .gm-card {
   background: var(--gm-card);
   border: 1px solid var(--gm-border);
-  border-radius: 18px;
+  border-radius: var(--gm-radius);
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: var(--gm-shadow);
 }
 
 .gm-card-head {
@@ -238,6 +314,8 @@ body.is-manager-mode #gm-root {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--gm-border);
 }
 
 .gm-card-head h2,
@@ -304,11 +382,11 @@ body.is-manager-mode #gm-root {
 .gm-kpi {
   background: var(--gm-surface);
   border: 1px solid var(--gm-border);
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .gm-kpi small {
@@ -658,7 +736,9 @@ body.is-manager-mode #gm-root {
 }
 
 .gm-nav-btn.is-active {
-  color: var(--gm-accent);
+  background: linear-gradient(135deg, var(--gm-accent), #10b981);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
 }
 
 .gm-trait-grid {
@@ -708,29 +788,31 @@ body.is-manager-mode #gm-root {
 
 .gm-modal-box {
   width: 100%;
-  max-width: 460px;
+  max-width: 480px;
   background: var(--gm-card);
   border: 1px solid var(--gm-border);
-  border-radius: 18px;
-  padding: 18px;
+  border-radius: 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.16);
 }
 
 .gm-toast {
   position: fixed;
-  bottom: 78px;
+  bottom: 82px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10020;
   padding: 10px 16px;
   border-radius: 999px;
-  background: #191f28;
-  color: #fff;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  color: #f8fafc;
   font-size: 13px;
   font-weight: 750;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--gm-border);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -800,11 +882,11 @@ body.is-manager-mode #gm-root {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 10;
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
-  border: 2px solid #223044;
+  border: 3px solid rgba(255, 255, 255, 0.18);
   background: #0f172a;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.3), inset 0 1px 6px rgba(255, 255, 255, 0.04);
 }
 
 .gm-cam-bar {
@@ -858,10 +940,10 @@ body.is-manager-mode #gm-root {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(8, 18, 12, 0.72);
+  background: radial-gradient(circle at center, rgba(5, 12, 12, 0.88), rgba(0, 0, 0, 0.58) 100%);
   color: #fff;
   text-align: center;
-  animation: gmGoalPop 0.35s ease;
+  animation: gmGoalPop 0.4s cubic-bezier(0.15, 1, 0.3, 1);
   pointer-events: none;
 }
 
@@ -870,11 +952,17 @@ body.is-manager-mode #gm-root {
 }
 
 .gm-goal-banner strong {
-  font-size: 32px;
+  font-size: 34px;
   font-weight: 950;
   letter-spacing: 0.08em;
   color: #fde047;
-  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 0 24px rgba(253, 224, 71, 0.85);
+  animation: gmGoalPulse 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes gmGoalPulse {
+  from { opacity: 0.8; transform: scale(1); }
+  to { opacity: 1; transform: scale(1.05); }
 }
 
 .gm-goal-banner span {
@@ -983,13 +1071,13 @@ body.is-manager-mode #gm-root {
 }
 
 .gm-stat-bar-home {
-  background: var(--gm-accent);
+  background: linear-gradient(90deg, #059669 0%, #22c55e 100%);
   height: 100%;
   transition: width 0.25s ease;
 }
 
 .gm-stat-bar-away {
-  background: #ef4444;
+  background: linear-gradient(90deg, #dc2626 0%, #ef4444 100%);
   height: 100%;
   transition: width 0.25s ease;
 }
