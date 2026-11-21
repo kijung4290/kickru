@@ -3619,6 +3619,19 @@
       lm.logs.unshift({ min: lm.minute, text: subst(pickText(CLEAR), { name: keeper?.name || owner.name }), type: "info" });
     }
 
+    // Live pass: occasionally set a pass trajectory toward the next player
+    if (hasBall && Math.random() < 0.07) {
+      const line = myHasBall ? lm.myLineup : lm.oppLineup;
+      const idx = Math.min(line.length - 1, (lm.ball.ownerIdx + 1) % line.length);
+      const target = line[idx] || line[0];
+      lm.ball.phase = "pass";
+      lm.ball.passTarget = { tx: target.tx, ty: target.ty };
+      lm.ball.vz = 0.25;
+      lm.ball.vx = (target.tx - lm.ball.x) * 0.3;
+      lm.ball.vy = (target.ty - lm.ball.y) * 0.3;
+      lm.logs.unshift({ min: lm.minute, text: subst(pickText(DRIBBLE), { name: owner.name }), type: "info" });
+    }
+
     // Chance & Shot generation (~19% per minute -> ~17 total shots per 90')
     const eventRoll = Math.random();
     if (eventRoll < 0.19) {
@@ -3642,7 +3655,9 @@
       // Move ball toward goal with arc
       lm.ball.tx = possSide === "home" ? 0.96 : 0.04;
       lm.ball.ty = 0.5 + (Math.random() - 0.5) * 0.14;
-      lm.ball.vz = 0.26 + Math.random() * 0.16;
+      lm.ball.vz = 0.46 + Math.random() * 0.2;
+      lm.ball.vx = (lm.ball.tx - lm.ball.x) * 0.2;
+      lm.ball.vy = clamp((lm.ball.ty - lm.ball.y) * 0.2, -0.18, 0.18);
       lm.ball.phase = "shot";
 
       const onTargetProb = clamp(0.38 + attEdge * 0.008, 0.22, 0.58);
@@ -3689,7 +3704,13 @@
           // Saved by GK or off target
           if (Math.random() < 0.4) {
             const saver = (myHasBall ? lm.myLineup[0] : lm.oppLineup[0]) || pick(myHasBall ? lm.myLineup : lm.oppLineup);
-            if (saver) saver.rating = clamp(saver.rating + 0.3, 5.0, 10.0);
+            if (saver) {
+              saver.rating = clamp(saver.rating + 0.3, 5.0, 10.0);
+              if (!myHasBall && saver === lm.myLineup[0]) {
+                saver.vx = clamp(lm.ball.x - saver.tx + 0.5, -0.3, 0.3);
+                saver.vy = clamp(lm.ball.y - saver.ty + 0.5, -0.3, 0.3);
+              }
+            }
             lm.logs.unshift({ min: lm.minute, text: subst(pickText(COMMENTARY.saved), { name: saver?.name || shooter.name }), type: "info" });
           } else {
             lm.logs.unshift({ min: lm.minute, text: subst(pickText(COMMENTARY.offTarget), { name: shooter.name }), type: "info" });
@@ -3889,14 +3910,30 @@
     const lm = liveMatch;
     const now = Date.now() * 0.004;
 
-    // Smooth ball movement + 3D parabolic arc physics
-    lm.ball.x += (lm.ball.tx - lm.ball.x) * 0.16;
-    lm.ball.y += (lm.ball.ty - lm.ball.y) * 0.16;
-    lm.ball.z = (lm.ball.z || 0) + (lm.ball.vz || 0);
-    lm.ball.vz = (lm.ball.vz || 0) - 0.016;
+    // Smooth ball movement + 3D parabolic arc physics (pass / shot / play)
+    if (lm.ball.phase === "pass" && lm.ball.passTarget) {
+      const t = lm.ball.passTarget;
+      const moveX = (t.tx - lm.ball.x) * 0.25;
+      const moveY = (t.ty - lm.ball.y) * 0.25;
+      lm.ball.x = clamp(lm.ball.x + moveX, 0.04, 0.96);
+      lm.ball.y = clamp(lm.ball.y + moveY, 0.1, 0.9);
+      lm.ball.z = (lm.ball.z || 0) + Math.max(lm.ball.vz || 0.12, 0.1);
+      lm.ball.vz = (lm.ball.vz || 0) - 0.008;
+      if (Math.hypot(moveX, moveY) < 0.04 || (lm.ball.z || 0) <= 0.05) {
+        lm.ball.phase = "play";
+        lm.ball.passTarget = null;
+      }
+    } else {
+      const speed = lm.ball.phase === "shot" ? 1.25 : 1;
+      lm.ball.x += (lm.ball.tx - lm.ball.x) * 0.16 * speed;
+      lm.ball.y += (lm.ball.ty - lm.ball.y) * 0.16 * speed;
+      lm.ball.z = (lm.ball.z || 0) + (lm.ball.vz || 0);
+      lm.ball.vz = (lm.ball.vz || 0) - 0.016;
+    }
     if (lm.ball.z <= 0) {
       lm.ball.z = 0;
       lm.ball.vz = Math.abs(lm.ball.vz) > 0.04 ? Math.abs(lm.ball.vz) * 0.42 : 0;
+      if (lm.ball.phase === "shot") lm.ball.phase = "play";
     }
 
     lm.ball.trail = lm.ball.trail || [];
@@ -3953,6 +3990,12 @@
       p.vy = ny - p.y;
       p.x = nx;
       p.y = ny;
+      if (p.vx || p.vy) {
+        p.tx = clamp(p.tx + (p.vx || 0), 0.04, 0.96);
+        p.ty = clamp(p.ty + (p.vy || 0), 0.08, 0.92);
+        p.vx = 0;
+        p.vy = 0;
+      }
     });
 
     lm.oppLineup.forEach((p, idx) => {
@@ -3969,6 +4012,12 @@
       p.vy = ny - p.y;
       p.x = nx;
       p.y = ny;
+      if (p.vx || p.vy) {
+        p.tx = clamp(p.tx + (p.vx || 0), 0.04, 0.96);
+        p.ty = clamp(p.ty + (p.vy || 0), 0.08, 0.92);
+        p.vx = 0;
+        p.vy = 0;
+      }
     });
   }
 
@@ -4181,6 +4230,20 @@
       ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
       ctx.lineWidth = 2.5;
       ctx.stroke();
+    }
+
+    // Passing arcs (dashes from current ball to pass target)
+    if (lm.ball.phase === "pass" && lm.ball.passTarget) {
+      const a = proj((lm.ball.x - 0.5) * 105, (lm.ball.y - 0.5) * 68, (lm.ball.z || 0) * 12);
+      const b = proj((lm.ball.passTarget.tx - 0.5) * 105, (lm.ball.passTarget.ty - 0.5) * 68, 0);
+      ctx.beginPath();
+      ctx.moveTo(a.sx, a.sy);
+      ctx.lineTo(b.sx, b.sy);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([7, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     for (const item of entities) {
@@ -4417,6 +4480,19 @@
     ctx.strokeStyle = "#111827";
     ctx.lineWidth = 1.5;
     ctx.stroke();
+
+    if (lm.ball.phase === "pass" && lm.ball.passTarget) {
+      const pA = pad + lm.ball.x * pw;
+      const pB = pad + lm.ball.passTarget.tx * pw;
+      ctx.strokeStyle = "rgba(0,0,0,0.45)";
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pA, pad + lm.ball.y * ph);
+      ctx.lineTo(pB, pad + lm.ball.passTarget.ty * ph);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   function renderLiveMatchView(root) {
