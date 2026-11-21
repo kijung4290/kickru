@@ -144,6 +144,7 @@
     clubQuery: "",
   };
   let marketQuery = "";
+  let negotiation = null;
   let moveClubQuery = "";
   let moveTeamFilter = "all"; // all | club | national
   let editingPlayerId = null;
@@ -502,7 +503,7 @@
       }
     }
     const avgFit = active.length ? fitSum / active.length : 1;
-    const rawOvr = active.reduce((acc, p) => acc + p.ovr * (0.75 + 0.25 * (p.stamina / 100)), 0) / Math.max(1, active.length);
+    const rawOvr = active.reduce((acc, p) => acc + (p.ovr + ((p.morale ?? 85) - 85) * 0.05) * (0.75 + 0.25 * (p.stamina / 100)), 0) / Math.max(1, active.length);
     const traitBonus = mgrState.manager.trait === "tactician" ? 3 : 0;
     const moraleBonus = (mgrState.teamMorale - 70) * 0.05;
     const totalOvr = Math.round((rawOvr * avgFit + traitBonus + moraleBonus) * 10) / 10;
@@ -523,6 +524,193 @@
     };
   }
 
+  const SQUAD_LIMIT = 25;
+
+  // ── Transfer market realism ─────────────────────────────────────────
+  // Season is split into a summer and a winter window. Outside the window
+  // selling clubs demand a premium and players are less willing to move.
+  function getTransferWindow(s) {
+    const total = Math.max(1, s.schedule?.length || 38);
+    const mid = Math.floor(total / 2);
+    if (s.round <= 3) {
+      return { open: true, label: "여름 이적시장", detail: `개막 초반 (${s.round + 1}R)`, premium: 1 };
+    }
+    if (s.round >= mid - 2 && s.round <= mid + 1) {
+      return { open: true, label: "겨울 이적시장", detail: `${mid}R 전후`, premium: 1 };
+    }
+    const untilOpen = s.round < mid ? mid - 2 - s.round : total - s.round + 1;
+    return {
+      open: false,
+      label: "이적시장 마감",
+      detail: `${Math.max(1, untilOpen)}라운드 후 재개`,
+      premium: 1.18,
+    };
+  }
+
+  function clubAttractionScore(s) {
+    const club = getClub(s.clubId);
+    if (!club) return 60;
+    if (s.isNational) return 96;
+    const league = getLeague(s.leagueId);
+    const tier = league?.tier || 4;
+    const fac = s.facilities || {};
+    const facAvg =
+      ["stadium", "training", "youth", "medical", "scouting"].reduce((a, k) => a + (fac[k] || 1), 0) / 5;
+    let score = (club.strength || 65) + 8;
+    score += [15, 8, 2, -5][clamp(tier - 1, 0, 3)];
+    score += (facAvg - 4) * 2.2;
+    score += (s.boardTrust - 70) * 0.12;
+    score += (s.fanSupport - 70) * 0.08;
+    score += Math.min(8, (s.trophies?.length || 0) * 1.6);
+    if (s.manager?.trait === "motivator") score += 3;
+    if (s.manager?.trait === "tycoon") score += 2;
+    if (s.manager?.trait === "developer") score += 1;
+    return clamp(Math.round(score), 25, 99);
+  }
+
+  function getWageBudget(s) {
+    const club = getClub(s.clubId);
+    if (s.isNational) return 50000000000;
+    const base = Math.max(
+      1500000000,
+      Math.pow(Math.max(10, (club?.strength || 60) - 35), 2.5) * 4000000
+    );
+    return Math.round(base * 0.7);
+  }
+
+  function contractPriceMult(contract) {
+    if (contract <= 0) return 0.35;
+    if (contract === 1) return 0.62;
+    if (contract === 2) return 0.9;
+    if (contract === 3) return 1;
+    return 1.08;
+  }
+
+  function attachMarketTerms(s, p, opts = {}) {
+    const win = getTransferWindow(s);
+    const isFree = !!opts.isFree;
+    const sellerStrength = opts.sellerStrength ?? p.ovr;
+    const attraction = clubAttractionScore(s);
+    const keyGap = p.ovr - sellerStrength;
+    const isKey = !isFree && (keyGap >= 1 || p.ovr >= 82);
+    const potGap = Math.max(0, p.pot - p.ovr);
+
+    let mult = 1;
+    mult *= isKey ? 1.34 : 0.92;
+    mult *= contractPriceMult(p.contract);
+    mult *= p.age <= 20 ? 1.16 : p.age <= 23 ? 1.08 : p.age <= 28 ? 1 : p.age <= 31 ? 0.78 : 0.55;
+    if (potGap >= 10) mult *= 1.15;
+    else if (potGap >= 5) mult *= 1.06;
+    mult *= sellerStrength >= 84 ? 1.12 : sellerStrength <= 62 ? 0.9 : 1;
+    mult *= 0.94 + Math.random() * 0.12;
+    if (!win.open) mult *= win.premium;
+
+    const scoutLv = s.facilities?.scouting || 1;
+    const negDiscount = 1 - (scoutLv - 1) * 0.03 - (s.manager?.trait === "tycoon" ? 0.15 : 0);
+    const asking = isFree
+      ? 0
+      : Math.max(
+          50000000,
+          Math.round((p.value * mult * Math.max(0.55, negDiscount)) / 5000000) * 5000000
+        );
+
+    const rawWage = estimatePlayerWage(p.ovr);
+    const ageWage = p.age <= 23 ? 0.92 : p.age >= 30 ? 1.12 : 1;
+    const faWage = isFree ? 1.08 : 1;
+    const demand = Math.max(
+      20000000,
+      Math.round((rawWage * ageWage * faWage * (0.95 + Math.random() * 0.16)) / 1000000) * 1000000
+    );
+    const agentFee = isFree
+      ? Math.round(demand * 0.35)
+      : Math.round(asking * (0.05 + Math.random() * 0.05));
+
+    p.askingPrice = asking;
+    p.price = asking;
+    p.isFreeAgent = isFree;
+    p.fromClub = opts.fromClub || p.fromClub || "자유계약 (FA)";
+    p.fromClubId = opts.fromClubId || null;
+    p.sellerStrength = sellerStrength;
+    p.wageDemand = demand;
+    p.agentFee = agentFee;
+    p.interest = clamp(Math.round(attraction + randInt(-8, 8)), 20, 96);
+    p.ambition = Math.random();
+    p.moneyMotivation = Math.random();
+    p.loyalty = Math.random();
+    p.minAccept = isFree ? 0 : Math.round(asking * (isKey ? 0.84 : 0.76));
+    p.sellerStance = isFree
+      ? "자유계약 · 이적료 없음"
+      : !win.open
+      ? "시장 마감 · 프리미엄 요구"
+      : isKey
+      ? "핵심 선수 · 높은 이적료 요구"
+      : p.contract <= 1
+      ? "계약 1년 남음 · 매각 가능"
+      : "적정 제안 시 협상 가능";
+
+    p.rivalClub = null;
+    if (!isFree && Math.random() < clamp(0.12 + (p.ovr - 70) * 0.02, 0.12, 0.45)) {
+      const pool = (opts.clubPool || getBridge()?.r6?.clubs || []).filter(
+        (c) => c.id !== s.clubId && c.id !== p.fromClubId && !c.isNational
+      );
+      if (pool.length) p.rivalClub = pick(pool).localName;
+    }
+    return p;
+  }
+
+  function computeTransferInterest(p, s, offer) {
+    const win = getTransferWindow(s);
+    const demand = p.wageDemand || estimatePlayerWage(p.ovr);
+    const attraction = clubAttractionScore(s);
+    let score = 30 + (attraction - 62) * 1.05;
+
+    const ratio = (offer.wage || 0) / Math.max(1, demand);
+    const moneyWeight = 0.9 + (p.moneyMotivation || 0.5) * 0.5 + (p.age >= 30 ? 0.25 : 0);
+    score += clamp((ratio - 1) * 100 * moneyWeight, -42, 38);
+
+    const roleAdj = offer.role === "starter" ? 12 : offer.role === "rotation" ? 1 : -15;
+    score += p.age >= 30 ? roleAdj * 0.55 : roleAdj;
+
+    const group = POS_GROUP[p.pos];
+    const rivalsAtPos = s.squad.filter(
+      (x) => POS_GROUP[x.pos] === group && x.ovr >= p.ovr - 3
+    ).length;
+    score -= Math.min(12, rivalsAtPos * 2.5) * (offer.role === "starter" ? 0.35 : 1);
+
+    const potGap = Math.max(0, p.pot - p.ovr);
+    const ambition = p.ambition ?? 0.5;
+    if (potGap >= 8 && attraction < 72) score -= 6 + ambition * 10;
+    if (attraction >= 84) score += 5 + ambition * 4;
+    if (p.age <= 21) score += 4;
+    if (p.nationality === getClub(s.clubId)?.country) score += 7;
+    if (offer.years >= 4) score += 3;
+    if (offer.years <= 1) score -= 7;
+    score += clamp(((offer.bonus || 0) / Math.max(1, demand)) * 9, 0, 12);
+    if (!win.open) score -= 7;
+    if (offer.role === "starter") score += 2;
+    return clamp(Math.round(score), 1, 99);
+  }
+
+  function transferInterestReasons(p, s, offer) {
+    const reasons = [];
+    const demand = p.wageDemand || estimatePlayerWage(p.ovr);
+    const attraction = clubAttractionScore(s);
+    if ((offer.wage || 0) < demand * 0.95) {
+      reasons.push(`주급이 요구액(${formatMoney(demand)})보다 낮습니다`);
+    }
+    if (offer.role === "backup") reasons.push("백업 역할로는 이적을 원하지 않습니다");
+    if (offer.years <= 1) reasons.push("1년 단기 계약은 불안정합니다");
+    if (p.pot - p.ovr >= 8 && attraction < 72) reasons.push("더 큰 무대에서 성장하고 싶어 합니다");
+    if (!getTransferWindow(s).open) reasons.push("시즌 중 이적에 부담을 느낍니다");
+    if (
+      offer.role === "rotation" &&
+      s.squad.filter((x) => x.starter && POS_GROUP[x.pos] === POS_GROUP[p.pos]).length >= 2
+    ) {
+      reasons.push("주전 경쟁에서 밀릴 수 있다고 봅니다");
+    }
+    return reasons;
+  }
+
   function generateMarketPool(mgrState, count = 12) {
     const bridge = getBridge();
     const league = getLeague(mgrState.leagueId);
@@ -531,7 +719,7 @@
     const scoutLv = mgrState.facilities.scouting || 1;
     const baseStr = Math.max(club?.strength || 65, computeTeamStats(mgrState).total);
     const tierFactor = league ? Math.max(0, 4 - league.tier) * 2 : 2;
-    const discount = 1 - (scoutLv - 1) * 0.03 - (mgrState.manager.trait === "tycoon" ? 0.15 : 0);
+    const sellerPool = (bridge?.r6?.clubs || []).filter((c) => !c.isNational && c.id !== club?.id);
 
     const list = [];
     for (let i = 0; i < count; i++) {
@@ -542,7 +730,7 @@
       const pot = clamp(Math.max(ovr, age <= 22 ? ovr + randInt(5, 18) : ovr + randInt(0, 4)), ovr, 99);
       const isFree = isNat || i % 5 === 4;
       const rawVal = estimatePlayerValue(ovr, age, pot);
-      const price = isFree ? 0 : Math.max(50000000, Math.round((rawVal * Math.max(0.55, discount)) / 10000000) * 10000000);
+      const seller = !isFree && sellerPool.length ? pick(sellerPool) : null;
       const p = makePlayer(pos, ovr, club?.country || "kr", {
         age,
         ovr,
@@ -550,13 +738,17 @@
         value: rawVal,
         forceNationality: isNat,
       });
-      p.price = price;
-      p.isFreeAgent = isFree;
-      p.fromClub = isNat
-        ? pick(bridge.r6.clubs).localName + " (자국 국적 차출)"
-        : isFree
-        ? "자유계약 (FA)"
-        : pick(bridge.r6.clubs).localName;
+      attachMarketTerms(mgrState, p, {
+        isFree,
+        sellerStrength: seller?.strength || club?.strength || 65,
+        fromClub: isNat
+          ? `${(seller || (bridge?.r6?.clubs?.length ? pick(bridge.r6.clubs) : { localName: "해외 구단" })).localName} (자국 국적 차출)`
+          : isFree
+          ? "자유계약 (FA)"
+          : seller.localName,
+        fromClubId: seller?.id || null,
+        clubPool: sellerPool,
+      });
       list.push(p);
     }
     return list.sort((a, b) => b.ovr - a.ovr);
@@ -1045,7 +1237,28 @@
       advanceCupRound(s, s.continental, s.continental.name);
     }
 
+    // Role-promise happiness: promised starters who keep sitting out become unhappy.
+    for (const p of s.squad) {
+      if (p.rolePromise === "starter") {
+        p.morale = clamp((p.morale ?? 85) + (p.starter ? 0.5 : -2), 30, 100);
+      } else if (p.rolePromise === "rotation") {
+        p.morale = clamp((p.morale ?? 85) + (p.starter ? 1 : -0.5), 30, 100);
+      }
+    }
+
     s.round++;
+    if (s.round <= s.schedule.length) {
+      const prev = getTransferWindow({ schedule: s.schedule, round: s.round - 1 });
+      const next = getTransferWindow(s);
+      if (prev.label !== next.label) {
+        s.market = generateMarketPool(s);
+        s.news.unshift(
+          next.open
+            ? `🟢 ${next.label}(${next.detail})이 열렸습니다! 이적·영입 협상을 시작하세요.`
+            : `🔴 ${next.label}(${next.detail})이 마감되었습니다. 다음 시장까지 이적료 프리미엄이 붙습니다.`
+        );
+      }
+    }
     if (s.round >= s.schedule.length) {
       finishSeason(s);
     }
@@ -1736,7 +1949,7 @@
 
       <section class="gm-card">
         <div class="gm-card-head">
-          <h3>선수단 (${state.squad.length}명)</h3>
+          <h3>선수단 (${state.squad.length}/${SQUAD_LIMIT}명)</h3>
           <span class="gm-badge">주급 합계 ${formatMoney(state.squad.reduce((a, p) => a + p.wage, 0))}/년</span>
         </div>
         <div class="gm-list">
@@ -1751,7 +1964,7 @@
                     <div class="gm-ovr-pill">${p.ovr}</div>
                     <div class="gm-player-info">
                       <div class="gm-player-name">${escapeHtml(p.name)} <span style="font-size:11px;color:var(--gm-muted);font-weight:600;">${p.age}세 · POT ${p.pot}</span></div>
-                      <div class="gm-player-sub">체력 ${p.stamina}% · ${p.goals}골 ${p.assists}도움 · 계약 ${p.contract}년 · 가치 ${formatMoney(p.value)}</div>
+                      <div class="gm-player-sub">체력 ${p.stamina}% · ${p.goals}골 ${p.assists}도움 · 계약 ${p.contract}년 · 가치 ${formatMoney(p.value)}${p.rolePromise ? ` · ${p.rolePromise === "starter" ? "주전 보장" : p.rolePromise === "rotation" ? "로테이션" : "백업"}` : ""}</div>
                     </div>
                   </div>
                   <div class="gm-actions-mini">
@@ -1804,20 +2017,8 @@
     });
     main.querySelectorAll("[data-sell-player]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        if (state.squad.length <= 13) {
-          showToast("최소 13명의 선수가 필요합니다.");
-          return;
-        }
-        const idx = state.squad.findIndex((x) => x.id === btn.dataset.sellPlayer);
-        if (idx < 0) return;
-        const p = state.squad[idx];
-        const fee = Math.round(p.value * 0.85);
-        state.squad.splice(idx, 1);
-        state.budget += fee;
-        state.news.unshift(`${p.name} 선수를 ${formatMoney(fee)}에 매각했습니다.`);
-        saveState();
-        render();
-        showToast(`${p.name} 매각 (+${formatMoney(fee)})`);
+        const p = state.squad.find((x) => x.id === btn.dataset.sellPlayer);
+        if (p) openSellNegotiation(p);
       });
     });
     main.querySelectorAll("[data-edit-player]").forEach((btn) => {
@@ -1837,6 +2038,10 @@
     const lifePlayer = bridge?.life?.core?.player || null;
     const lifeOvr =
       lifePlayer && window.__KICKRU_EDITOR__?.calcOvr ? window.__KICKRU_EDITOR__.calcOvr(lifePlayer) : lifePlayer ? 75 : 0;
+    const transferWindow = getTransferWindow(state);
+    const attraction = clubAttractionScore(state);
+    const wageBill = state.squad.reduce((a, p) => a + (p.wage || 0), 0);
+    const wageBudget = getWageBudget(state);
 
     main.innerHTML = `
       ${
@@ -1867,12 +2072,26 @@
           <h2>${isNat ? "📣 국내·해외파 자국 선수 차출 풀" : "🔁 이적시장 매물"} (스카우팅 Lv.${state.facilities.scouting})</h2>
           <button type="button" class="gm-btn-sm" id="gm-refresh-market">🔄 ${isNat ? "차출 명단 새로고침" : "스카우트 새로고침"}</button>
         </div>
+        <div class="gm-market-summary">
+          <span class="gm-stance ${transferWindow.open ? "is-ok" : "is-warn"}">${transferWindow.open ? "🟢 " + transferWindow.label : "🔴 " + transferWindow.label}</span>
+          <span>구단 매력도 <b>${attraction}</b></span>
+          <span>연간 주급 <b>${formatMoney(wageBill)}</b> / 한도 ${formatMoney(wageBudget)}</span>
+          <span>예산 <b>${formatMoney(state.budget)}</b></span>
+        </div>
+        ${
+          !isNat && !transferWindow.open
+            ? `<div class="gm-nego-note is-warn">이적시장이 닫혀 있습니다. 지금 영입하면 구단이 이적료 프리미엄(+18%)을 요구하고 선수 의향도 낮아집니다. 자유계약(FA)은 언제든 협상할 수 있습니다.</div>`
+            : ""
+        }
         <div class="gm-list">
           ${state.market
             .map((p) => {
               const grp = POS_GROUP[p.pos];
               const posCls = grp === "GK" ? "is-gk" : grp === "DEF" ? "is-def" : grp === "ATT" ? "is-att" : "";
-              const canAfford = state.budget >= p.price;
+              const price = p.askingPrice ?? p.price ?? 0;
+              const floor = p.minAccept ?? price;
+              const canAfford = state.budget >= floor;
+              const interest = clamp(p.interest ?? 50, 1, 99);
               return `
                 <div class="gm-list-item">
                   <div class="gm-player-main">
@@ -1880,11 +2099,21 @@
                     <div class="gm-ovr-pill">${p.ovr}</div>
                     <div class="gm-player-info">
                       <div class="gm-player-name">${escapeHtml(p.name)} <span style="font-size:11px;color:var(--gm-muted);">${p.age}세 · POT ${p.pot}</span></div>
-                      <div class="gm-player-sub">${escapeHtml(p.fromClub)} · 연봉 ${formatMoney(p.wage)}</div>
+                      <div class="gm-player-sub">${escapeHtml(p.fromClub)} · 계약 ${p.contract}년 · 요구 연봉 ${formatMoney(p.wageDemand || p.wage)}</div>
+                      <div class="gm-nego-meta">
+                        <span class="gm-stance ${p.isFreeAgent ? "is-ok" : ""}">${p.isFreeAgent ? "FA · 이적료 없음" : "요구 " + formatMoney(price)}</span>
+                        <span class="gm-stance">${escapeHtml(p.sellerStance || "협상 가능")}</span>
+                        ${p.rivalClub ? `<span class="gm-stance is-danger">경쟁 ${escapeHtml(p.rivalClub)}</span>` : ""}
+                      </div>
+                      <div class="gm-interest-line">
+                        <span>기본 의향</span>
+                        <div class="gm-interest-bar"><i style="width:${interest}%"></i></div>
+                        <b>${interest}%</b>
+                      </div>
                     </div>
                   </div>
-                  <button type="button" class="gm-mini-btn is-active" data-buy-player="${p.id}" ${!canAfford ? "disabled" : ""}>
-                    ${isNat ? "대표팀 차출" : p.isFreeAgent ? "FA 영입" : formatMoney(p.price)}
+                  <button type="button" class="gm-mini-btn is-active" ${isNat ? `data-buy-player="${p.id}"` : `data-negotiate="${p.id}"`} ${!isNat && !canAfford ? "disabled" : ""}>
+                    ${isNat ? "대표팀 차출" : p.isFreeAgent ? "FA 협상" : "협상"}
                   </button>
                 </div>
               `;
@@ -1904,23 +2133,23 @@
                 ${searchedClubs
                   .map((c) => {
                     const estOvr = clamp((c.strength || 70) + 4, 58, 94);
-                    const estPrice = isNat ? 0 : estimatePlayerValue(estOvr, 24, estOvr + 3);
+                    const estPrice = isNat ? 0 : Math.round((estimatePlayerValue(estOvr, 24, estOvr + 3) * 1.1) / 5000000) * 5000000;
                     return `
                       <div class="gm-list-item">
                         <div class="gm-player-main">
                           ${clubLogoHtml(c.id, true)}
                           <div class="gm-player-info">
                             <div class="gm-player-name">${escapeHtml(c.localName)} ${isNat ? "자국 해외파" : "에이스 영입"} (OVR ${estOvr})</div>
-                            <div class="gm-player-sub">${isNat ? "이적료 무료 · 즉시 소집" : "예상 이적료 " + formatMoney(estPrice)}</div>
+                            <div class="gm-player-sub">${isNat ? "이적료 무료 · 즉시 소집" : "예상 이적료 " + formatMoney(estPrice) + " · 핵심 선수라 협상 필요"}</div>
                           </div>
                         </div>
-                        <button type="button" class="gm-mini-btn is-active" data-poach-club="${c.id}" ${state.budget < estPrice ? "disabled" : ""}>${isNat ? "차출" : "영입"}</button>
+                        <button type="button" class="gm-mini-btn is-active" data-poach-club="${c.id}" ${!isNat && state.budget < estPrice * 0.7 ? "disabled" : ""}>${isNat ? "차출" : "협상"}</button>
                       </div>
                     `;
                   })
                   .join("")}
               </div>`
-            : `<div style="font-size:12px;color:var(--gm-muted);">${isNat ? "구단 이름을 입력하면 해당 구단 스타일의 자국 국적 선수를 즉시 차출합니다." : "구단 이름을 입력하면 해당 구단의 핵심 선수를 즉시 영입할 수 있습니다."}</div>`
+            : `<div style="font-size:12px;color:var(--gm-muted);">${isNat ? "구단 이름을 입력하면 해당 구단 스타일의 자국 국적 선수를 즉시 차출합니다." : "구단 이름을 입력하면 해당 구단의 핵심 선수와 이적료·연봉을 협상할 수 있습니다."}</div>`
         }
       </section>
     `;
@@ -1935,6 +2164,9 @@
         existing.pos = lifePlayer.position || existing.pos;
         existing.stamina = 100;
         existing.starter = true;
+      } else if (state.squad.length >= SQUAD_LIMIT) {
+        showToast(`선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다. 먼저 선수를 방출하세요.`);
+        return;
       } else {
         const summoned = makePlayer(lifePlayer.position || "ST", lifeOvr, curClub.country, {
           name: lifePlayer.name,
@@ -1954,6 +2186,10 @@
 
     document.getElementById("gm-pull-youth").addEventListener("click", () => {
       if (state.youthPullsRemaining <= 0) return;
+      if (state.squad.length >= SQUAD_LIMIT) {
+        showToast(`선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다. 먼저 선수를 방출하세요.`);
+        return;
+      }
       state.youthPullsRemaining--;
       const yLv = state.facilities.youth || 1;
       const ovr = clamp(54 + yLv * 2 + randInt(-2, 5), 52, 85);
@@ -1974,25 +2210,29 @@
       showToast("새로운 차출/이적 리스트를 불러왔습니다.");
     });
 
+    main.querySelectorAll("[data-negotiate]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const p = state.market.find((x) => x.id === btn.dataset.negotiate);
+        if (p) openTransferNegotiation(p, { fromMarket: true });
+      });
+    });
+
     main.querySelectorAll("[data-buy-player]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const idx = state.market.findIndex((x) => x.id === btn.dataset.buyPlayer);
         if (idx < 0) return;
         const p = state.market[idx];
-        if (state.budget < p.price) {
-          showToast("구단 예산이 부족합니다.");
+        if (state.squad.length >= SQUAD_LIMIT) {
+          showToast(`선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다.`);
           return;
         }
-        state.budget -= p.price;
-        delete p.price;
-        delete p.isFreeAgent;
-        delete p.fromClub;
+        ["price", "isFreeAgent", "fromClub", "askingPrice", "wageDemand", "agentFee", "interest", "minAccept", "sellerStance", "rivalClub", "sellerStrength", "fromClubId", "ambition", "moneyMotivation", "loyalty"].forEach((k) => delete p[k]);
         state.squad.push(p);
         state.market.splice(idx, 1);
-        state.news.unshift(`${p.name}(${p.pos}, OVR ${p.ovr}) 선수가 합류했습니다!`);
+        state.news.unshift(`📣 ${p.name}(${p.pos}, OVR ${p.ovr}) 선수를 대표팀에 차출했습니다!`);
         saveState();
         render();
-        showToast(`${p.name} 합류 완료!`);
+        showToast(`${p.name} 대표팀 차출 완료!`);
       });
     });
 
@@ -2011,23 +2251,591 @@
         const c = getClub(btn.dataset.poachClub);
         if (!c) return;
         const estOvr = clamp((c.strength || 70) + 4, 58, 94);
-        const estPrice = isNat ? 0 : estimatePlayerValue(estOvr, 24, estOvr + 3);
-        if (state.budget < estPrice) {
-          showToast("구단 예산이 부족합니다.");
+
+        if (!isNat) {
+          if (state.squad.length >= SQUAD_LIMIT) {
+            showToast(`선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다.`);
+            return;
+          }
+          const ace = makePlayer(pick(["ST", "LW", "CAM", "CM", "CB"]), estOvr, c.country, {
+            age: randInt(21, 27),
+            ovr: estOvr,
+            pot: clamp(estOvr + 3, estOvr, 99),
+          });
+          attachMarketTerms(state, ace, {
+            sellerStrength: c.strength || 70,
+            fromClub: c.localName,
+            fromClubId: c.id,
+          });
+          openTransferNegotiation(ace, { fromMarket: false });
           return;
         }
-        state.budget -= estPrice;
-        const ace = makePlayer(pick(["ST", "LW", "CAM", "CM", "CB"]), estOvr, isNat ? curClub.country : c.country, {
+
+        if (state.squad.length >= SQUAD_LIMIT) {
+          showToast(`선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다.`);
+          return;
+        }
+        const ace = makePlayer(pick(["ST", "LW", "CAM", "CM", "CB"]), estOvr, curClub.country, {
           age: randInt(21, 27),
           ovr: estOvr,
           pot: clamp(estOvr + 3, estOvr, 99),
-          forceNationality: isNat,
+          forceNationality: true,
         });
         state.squad.push(ace);
-        state.news.unshift(`💎 ${c.localName} 스타일 에이스 ${ace.name}(OVR ${ace.ovr}) 선수가 합류했습니다!`);
+        state.news.unshift(`💎 ${c.localName} 스타일 자국 에이스 ${ace.name}(OVR ${ace.ovr}) 선수를 대표팀에 차출했습니다!`);
         saveState();
         render();
-        showToast(`${ace.name} 합류 완료!`);
+        showToast(`${ace.name} 차출 완료!`);
+      });
+    });
+  }
+
+  // ── Transfer negotiation modal ─────────────────────────────────────
+  function openTransferNegotiation(player, opts = {}) {
+    if (!player || !state) return;
+    if (state.squad.length >= SQUAD_LIMIT) {
+      showToast(`선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다. 먼저 선수를 방출하세요.`);
+      return;
+    }
+    const demand = player.wageDemand || estimatePlayerWage(player.ovr);
+    negotiation = {
+      player,
+      fromMarket: opts.fromMarket !== false,
+      stage: player.isFreeAgent ? "personal" : "club",
+      ask: player.askingPrice ?? player.price ?? 0,
+      minAccept: player.minAccept ?? Math.round((player.askingPrice || player.price || 0) * 0.8),
+      fee: player.isFreeAgent ? 0 : null,
+      agentFee: player.agentFee || 0,
+      clubRounds: 0,
+      personalRounds: 0,
+      offer: {
+        wage: Math.round(demand / 1000000) * 1000000,
+        years: player.age >= 31 ? 2 : player.age <= 22 ? 5 : 4,
+        role: "starter",
+        bonus: 0,
+      },
+      message: player.isFreeAgent
+        ? "자유계약 선수입니다. 개인 조건만 합의하면 바로 영입할 수 있습니다."
+        : "판매 구단과 이적료를 먼저 협상하세요.",
+      messageTone: "info",
+      rival: player.rivalClub || null,
+    };
+    renderNegotiationModal();
+  }
+
+  function closeNegotiation() {
+    negotiation = null;
+    document.getElementById("gm-nego-modal")?.remove();
+  }
+
+  function readFeeInput() {
+    const el = document.getElementById("gm-nego-fee");
+    return Math.max(0, Math.round(Number(el?.value || 0) * 1e8));
+  }
+
+  function readPersonalOffer() {
+    const wage = Math.max(0, Math.round(Number(document.getElementById("gm-nego-wage")?.value || 0) * 1e4));
+    const years = clamp(Math.round(Number(document.getElementById("gm-nego-years")?.value || 3)), 1, 5);
+    const role = document.getElementById("gm-nego-role")?.value || "starter";
+    const bonus = Math.max(0, Math.round(Number(document.getElementById("gm-nego-bonus")?.value || 0) * 1e4));
+    return { wage, years, role, bonus };
+  }
+
+  function updateNegoPreview() {
+    if (!negotiation || negotiation.stage !== "personal") return;
+    const p = negotiation.player;
+    const offer = readPersonalOffer();
+    negotiation.offer = offer;
+    const need = 62 + Math.round((p.ambition || 0.5) * 6);
+    const interest = computeTransferInterest(p, state, offer);
+    const fill = document.getElementById("gm-nego-interest-fill");
+    const val = document.getElementById("gm-nego-interest-val");
+    const reasonsEl = document.getElementById("gm-nego-reasons");
+    const bonusEl = document.getElementById("gm-nego-bonus-val");
+    const totalEl = document.getElementById("gm-nego-total");
+    if (val) val.textContent = `${interest}% / 필요 ${need}%`;
+    if (fill) {
+      fill.style.width = `${interest}%`;
+      fill.style.background =
+        interest >= need
+          ? "linear-gradient(90deg,#22a085,#10b981)"
+          : interest >= need - 10
+          ? "linear-gradient(90deg,#d97706,#fbbf24)"
+          : "linear-gradient(90deg,#e11d48,#fb7185)";
+    }
+    if (reasonsEl) {
+      reasonsEl.innerHTML =
+        interest >= need
+          ? "✅ 선수가 이 조건을 받아들일 것으로 보입니다."
+          : "❗ " +
+            (transferInterestReasons(p, state, offer).join(" · ") || "아직 구단의 비전에 확신이 부족합니다.");
+    }
+    if (bonusEl) bonusEl.textContent = formatMoney(offer.bonus);
+    if (totalEl) totalEl.textContent = formatMoney((negotiation.fee || 0) + (negotiation.agentFee || 0) + offer.bonus);
+  }
+
+  function renderNegotiationModal() {
+    if (!negotiation || !state) return;
+    const p = negotiation.player;
+    const win = getTransferWindow(state);
+    const attraction = clubAttractionScore(state);
+    const demand = p.wageDemand || estimatePlayerWage(p.ovr);
+    const interest = computeTransferInterest(p, state, negotiation.offer);
+    const need = 62 + Math.round((p.ambition || 0.5) * 6);
+    const wageBill = state.squad.reduce((a, x) => a + (x.wage || 0), 0);
+    const wageBudget = getWageBudget(state);
+    const competitors = state.squad.filter(
+      (x) => POS_GROUP[x.pos] === POS_GROUP[p.pos] && x.ovr >= p.ovr - 3
+    ).length;
+    const step = negotiation.stage === "club" ? "1" : "2";
+    const msgCls =
+      negotiation.messageTone === "ok"
+        ? "is-ok"
+        : negotiation.messageTone === "bad"
+        ? "is-bad"
+        : negotiation.messageTone === "warn"
+        ? "is-warn"
+        : "";
+
+    let modal = document.getElementById("gm-nego-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "gm-nego-modal";
+      modal.className = "gm-modal-backdrop";
+      document.body.appendChild(modal);
+    }
+
+    const clubPanel = `
+      <div class="gm-nego-section">
+        <div class="gm-nego-row">
+          <div>
+            <div class="gm-nego-label">판매 구단 요구액</div>
+            <div class="gm-nego-ask">${formatMoney(negotiation.ask)}</div>
+          </div>
+          <span class="gm-stance is-warn">${escapeHtml(p.sellerStance || "협상 가능")}</span>
+        </div>
+        <div class="gm-nego-label">이적료 제안 (억 원)</div>
+        <input type="number" class="gm-input" id="gm-nego-fee" min="0" step="1" value="${Math.round((negotiation.ask / 1e8) * 10) / 10}" />
+        <div class="gm-nego-quick">
+          <button type="button" class="gm-mini-btn" data-fee-adj="-10">-10%</button>
+          <button type="button" class="gm-mini-btn" data-fee-adj="-5">-5%</button>
+          <button type="button" class="gm-mini-btn" data-fee-set="ask">요구액</button>
+          <button type="button" class="gm-mini-btn" data-fee-adj="10">+10%</button>
+        </div>
+        <div class="gm-nego-note">에이전트 수수료 ${formatMoney(negotiation.agentFee)} 별도 · 보유 예산 ${formatMoney(state.budget)}</div>
+        <div class="gm-nego-note ${win.open ? "" : "is-warn"}">${win.open ? "이적시장이 열려 있어 정상 협상이 가능합니다." : "이적시장 마감 기간이라 판매 구단이 프리미엄을 요구합니다."}</div>
+        ${negotiation.rival ? `<div class="gm-nego-note is-bad">⚔️ ${escapeHtml(negotiation.rival)}도 이 선수를 노리고 있습니다. 협상이 길어지면 빼앗길 수 있습니다.</div>` : ""}
+        <button type="button" class="gm-btn is-primary" id="gm-nego-offer-club">📨 구단에 제안하기</button>
+      </div>
+    `;
+
+    const personalPanel = `
+      <div class="gm-nego-section">
+        <div class="gm-nego-row">
+          <div>
+            <div class="gm-nego-label">선수 요구 연봉</div>
+            <div class="gm-nego-ask">${formatMoney(demand)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="gm-nego-label">합의된 이적료</div>
+            <b>${formatMoney(negotiation.fee || 0)}</b>
+          </div>
+        </div>
+        <div class="gm-nego-label">제시 연봉 (만 원)</div>
+        <input type="number" class="gm-input" id="gm-nego-wage" min="0" step="100" value="${Math.round(negotiation.offer.wage / 1e4)}" />
+        <div class="gm-nego-quick">
+          <button type="button" class="gm-mini-btn" data-wage-adj="0">요구액</button>
+          <button type="button" class="gm-mini-btn" data-wage-adj="5">+5%</button>
+          <button type="button" class="gm-mini-btn" data-wage-adj="10">+10%</button>
+          <button type="button" class="gm-mini-btn" data-wage-adj="20">+20%</button>
+        </div>
+        <div class="gm-grid-2">
+          <div class="gm-field">
+            <label>계약 기간</label>
+            <select class="gm-select" id="gm-nego-years">
+              ${[1, 2, 3, 4, 5].map((y) => `<option value="${y}" ${negotiation.offer.years === y ? "selected" : ""}>${y}년</option>`).join("")}
+            </select>
+          </div>
+          <div class="gm-field">
+            <label>역할 보장</label>
+            <select class="gm-select" id="gm-nego-role">
+              <option value="starter" ${negotiation.offer.role === "starter" ? "selected" : ""}>주전 보장</option>
+              <option value="rotation" ${negotiation.offer.role === "rotation" ? "selected" : ""}>로테이션</option>
+              <option value="backup" ${negotiation.offer.role === "backup" ? "selected" : ""}>백업</option>
+            </select>
+          </div>
+        </div>
+        <div class="gm-nego-label">사이닝 보너스 (만 원, 선택)</div>
+        <input type="number" class="gm-input" id="gm-nego-bonus" min="0" step="100" value="${Math.round(negotiation.offer.bonus / 1e4)}" />
+        <div class="gm-nego-gauge">
+          <div class="gm-nego-row">
+            <span class="gm-nego-label">선수 의향</span>
+            <b id="gm-nego-interest-val">${interest}% / 필요 ${need}%</b>
+          </div>
+          <div class="gm-interest-bar"><i id="gm-nego-interest-fill" style="width:${interest}%"></i></div>
+          <div class="gm-nego-reasons" id="gm-nego-reasons">${
+            interest >= need
+              ? "✅ 선수가 이 조건을 받아들일 것으로 보입니다."
+              : "❗ " +
+                (transferInterestReasons(p, state, negotiation.offer).join(" · ") || "아직 구단의 비전에 확신이 부족합니다.")
+          }</div>
+        </div>
+        <div class="gm-nego-note">동일 포지션 경쟁: OVR ${p.ovr - 3} 이상 ${competitors}명 · 주전 보장과 출전 시간이 협상에 영향을 줍니다.</div>
+        <div class="gm-nego-note">총 지출: 이적료 ${formatMoney(negotiation.fee || 0)} + 에이전트 ${formatMoney(negotiation.agentFee)} + 보너스 <b id="gm-nego-bonus-val">${formatMoney(negotiation.offer.bonus)}</b> = <b id="gm-nego-total">${formatMoney((negotiation.fee || 0) + negotiation.agentFee + negotiation.offer.bonus)}</b> · 예산 ${formatMoney(state.budget)}</div>
+        <div class="gm-nego-note ${wageBill + negotiation.offer.wage > wageBudget ? "is-bad" : ""}">현재 연간 주급 ${formatMoney(wageBill)} / 구단 한도 ${formatMoney(wageBudget)}</div>
+        <button type="button" class="gm-btn is-primary" id="gm-nego-offer-personal">✍️ 개인 조건 제안하기</button>
+        ${
+          negotiation.fee != null && !p.isFreeAgent
+            ? `<button type="button" class="gm-btn-sm" id="gm-nego-back">← 구단 협상으로 돌아가기</button>`
+            : ""
+        }
+      </div>
+    `;
+
+    modal.innerHTML = `
+      <div class="gm-modal-box gm-nego-box">
+        <div class="gm-card-head">
+          <h3>🤝 ${escapeHtml(p.name)} 영입 협상</h3>
+          <button type="button" class="gm-btn-sm" id="gm-nego-close">닫기</button>
+        </div>
+        <div class="gm-nego-steps">
+          <span class="${step === "1" ? "is-active" : "is-done"}">1 구단 협상</span>
+          <span class="${step === "2" ? "is-active" : ""}">2 선수 개인 조건</span>
+        </div>
+        <div class="gm-nego-player">
+          <div class="gm-ovr-pill">${p.ovr}</div>
+          <div class="gm-player-info">
+            <div class="gm-player-name">${escapeHtml(p.name)} <span style="font-size:11px;color:var(--gm-muted);">${p.age}세 · ${p.pos} · POT ${p.pot}</span></div>
+            <div class="gm-player-sub">${escapeHtml(p.fromClub || "자유계약")} · 계약 ${p.contract}년 · 가치 ${formatMoney(p.value)}</div>
+          </div>
+        </div>
+        <div class="gm-market-summary">
+          <span>구단 매력도 <b>${attraction}</b></span>
+          <span>주급 한도 <b>${formatMoney(wageBudget)}</b></span>
+          <span>현재 주급 <b>${formatMoney(wageBill)}</b></span>
+          <span class="${win.open ? "is-ok" : "is-warn"}">${win.open ? win.label : win.label + " (+18%)"}</span>
+        </div>
+        ${negotiation.message ? `<div class="gm-nego-msg ${msgCls}">${escapeHtml(negotiation.message)}</div>` : ""}
+        ${negotiation.stage === "club" ? clubPanel : personalPanel}
+      </div>
+    `;
+
+    modal.onclick = (e) => {
+      if (e.target === modal) closeNegotiation();
+    };
+    document.getElementById("gm-nego-close").addEventListener("click", closeNegotiation);
+
+    if (negotiation.stage === "club") {
+      document.getElementById("gm-nego-offer-club").addEventListener("click", submitClubOffer);
+      modal.querySelectorAll("[data-fee-adj]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const el = document.getElementById("gm-nego-fee");
+          if (!el) return;
+          const cur = Math.max(0, Number(el.value || 0));
+          el.value = String(Math.max(0, Math.round(cur * (1 + Number(btn.dataset.feeAdj) / 100) * 10) / 10));
+        });
+      });
+      modal.querySelectorAll("[data-fee-set]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const el = document.getElementById("gm-nego-fee");
+          if (el) el.value = String(Math.round((negotiation.ask / 1e8) * 10) / 10);
+        });
+      });
+    } else {
+      ["gm-nego-wage", "gm-nego-bonus"].forEach((id) => {
+        document.getElementById(id)?.addEventListener("input", updateNegoPreview);
+      });
+      ["gm-nego-years", "gm-nego-role"].forEach((id) => {
+        document.getElementById(id)?.addEventListener("change", updateNegoPreview);
+      });
+      document.getElementById("gm-nego-offer-personal").addEventListener("click", submitPersonalOffer);
+      document.getElementById("gm-nego-back")?.addEventListener("click", () => {
+        negotiation.stage = "club";
+        negotiation.message = "다시 판매 구단과 이적료 협상을 진행합니다.";
+        negotiation.messageTone = "info";
+        renderNegotiationModal();
+      });
+      modal.querySelectorAll("[data-wage-adj]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const el = document.getElementById("gm-nego-wage");
+          if (!el) return;
+          const adj = Number(btn.dataset.wageAdj);
+          const base = adj === 0 ? demand : Math.max(0, Number(el.value || 0) * 1e4 * (1 + adj / 100));
+          el.value = String(Math.max(0, Math.round(base / 1e4)));
+          updateNegoPreview();
+        });
+      });
+      updateNegoPreview();
+    }
+  }
+
+  function submitClubOffer() {
+    const n = negotiation;
+    if (!n) return;
+    const p = n.player;
+    const fee = readFeeInput();
+    const total = fee + (n.agentFee || 0);
+    if (state.budget < total) {
+      n.message = `예산이 부족합니다. 필요 금액 ${formatMoney(total)} / 보유 ${formatMoney(state.budget)}`;
+      n.messageTone = "bad";
+      renderNegotiationModal();
+      return;
+    }
+
+    if (fee >= n.ask * 0.995) {
+      n.fee = fee;
+      n.stage = "personal";
+      n.message = `구단이 ${formatMoney(fee)} 이적료 제안을 수락했습니다. 이제 선수와 개인 조건을 협상하세요.`;
+      n.messageTone = "ok";
+    } else if (fee >= n.minAccept) {
+      n.fee = fee;
+      n.ask = Math.round(((n.ask + fee) / 2) / 5000000) * 5000000;
+      n.clubRounds++;
+      p.askingPrice = n.ask;
+      n.minAccept = Math.round(n.ask * 0.8);
+      n.message =
+        n.clubRounds >= 3
+          ? `구단이 마지막으로 ${formatMoney(n.ask)}를 요구합니다. 이 금액 이상이면 수락하겠다고 합니다.`
+          : `구단이 ${formatMoney(fee)} 제안을 거절하고 ${formatMoney(n.ask)}를 역제안했습니다. (${n.clubRounds}/3)`;
+      n.messageTone = "warn";
+    } else {
+      n.clubRounds++;
+      n.ask = Math.round((n.ask * (n.clubRounds >= 3 ? 1.08 : 1.04)) / 5000000) * 5000000;
+      n.minAccept = Math.round(n.ask * 0.8);
+      p.askingPrice = n.ask;
+      n.message =
+        n.clubRounds >= 3
+          ? `구단이 협상 중단을 선언했습니다. 요구액이 ${formatMoney(n.ask)}로 올랐습니다.`
+          : `구단이 ${formatMoney(fee)} 제안을 거절했습니다. 요구액이 ${formatMoney(n.ask)}로 상승했습니다.`;
+      n.messageTone = "bad";
+    }
+
+    if (n.stage === "club" && n.rival && n.clubRounds >= 2 && Math.random() < 0.4) {
+      const rival = n.rival;
+      state.market = state.market.filter((x) => x.id !== p.id);
+      state.news.unshift(`😖 ${p.name} 선수가 ${rival}의 더 나은 제안을 받아들여 영입 경쟁에서 밀렸습니다.`);
+      saveState();
+      negotiation = null;
+      document.getElementById("gm-nego-modal")?.remove();
+      render();
+      showToast(`${p.name} 선수가 ${rival}로 향했습니다.`);
+      return;
+    }
+    renderNegotiationModal();
+  }
+
+  function submitPersonalOffer() {
+    const n = negotiation;
+    if (!n) return;
+    const p = n.player;
+    const offer = readPersonalOffer();
+    n.offer = offer;
+    const interest = computeTransferInterest(p, state, offer);
+    const need = 62 + Math.round((p.ambition || 0.5) * 6);
+    const total = (n.fee || 0) + (n.agentFee || 0) + offer.bonus;
+    const wageBill = state.squad.reduce((a, x) => a + (x.wage || 0), 0);
+    const wageBudget = getWageBudget(state);
+
+    if (state.budget < total) {
+      n.message = `예산이 부족합니다. 필요 금액 ${formatMoney(total)} / 보유 ${formatMoney(state.budget)}`;
+      n.messageTone = "bad";
+      renderNegotiationModal();
+      return;
+    }
+    if (wageBill + offer.wage > wageBudget) {
+      n.message = `구단 주급 한도(${formatMoney(wageBudget)})를 초과합니다. 다른 선수를 방출하거나 연봉을 낮춰야 합니다.`;
+      n.messageTone = "bad";
+      renderNegotiationModal();
+      return;
+    }
+
+    if (interest >= need) {
+      completeTransfer();
+      return;
+    }
+
+    n.personalRounds++;
+    const reasons = transferInterestReasons(p, state, offer);
+    if (n.personalRounds >= 3) {
+      p.interest = clamp((p.interest || 50) - 12, 1, 99);
+      n.message = `선수가 협상 중단을 선언했습니다. ${reasons.join(" · ") || "구단의 비전에 확신이 부족합니다."}`;
+      n.messageTone = "bad";
+    } else if (need - interest <= 9) {
+      const newDemand = Math.round(((p.wageDemand || estimatePlayerWage(p.ovr)) * 1.05) / 1000000) * 1000000;
+      p.wageDemand = newDemand;
+      n.offer.wage = Math.max(n.offer.wage, newDemand);
+      n.message = `선수가 ${formatMoney(newDemand)} 연봉을 요구하며 역제안했습니다. (+5%)`;
+      n.messageTone = "warn";
+    } else {
+      n.message = `선수가 제안을 거절했습니다. ${reasons.join(" · ") || "구단의 비전에 확신이 부족합니다."}`;
+      n.messageTone = "bad";
+    }
+    renderNegotiationModal();
+  }
+
+  function completeTransfer() {
+    const n = negotiation;
+    if (!n) return;
+    const p = n.player;
+    const fee = n.fee || 0;
+    const agent = n.agentFee || 0;
+    const bonus = n.offer.bonus || 0;
+    const total = fee + agent + bonus;
+    if (state.budget < total) {
+      n.message = `예산이 부족합니다. 필요 금액 ${formatMoney(total)} / 보유 ${formatMoney(state.budget)}`;
+      n.messageTone = "bad";
+      renderNegotiationModal();
+      return;
+    }
+    if (state.squad.length >= SQUAD_LIMIT) {
+      n.message = `선수단 정원(${SQUAD_LIMIT}명)이 가득 찼습니다. 먼저 선수를 방출하세요.`;
+      n.messageTone = "bad";
+      renderNegotiationModal();
+      return;
+    }
+
+    const fromLabel = p.fromClub || "자유계약";
+    state.budget -= total;
+    p.wage = n.offer.wage;
+    p.contract = n.offer.years;
+    p.rolePromise = n.offer.role;
+    p.morale = n.offer.role === "backup" ? 72 : 88;
+    p.starter = n.offer.role === "starter" && state.squad.filter((x) => x.starter).length < 11;
+    [
+      "price",
+      "askingPrice",
+      "isFreeAgent",
+      "fromClub",
+      "fromClubId",
+      "sellerStrength",
+      "wageDemand",
+      "agentFee",
+      "interest",
+      "ambition",
+      "moneyMotivation",
+      "loyalty",
+      "minAccept",
+      "sellerStance",
+      "rivalClub",
+    ].forEach((k) => delete p[k]);
+    state.squad.push(p);
+    state.market = state.market.filter((x) => x.id !== p.id);
+    state.news.unshift(
+      `✍️ ${p.name}(${p.pos}, OVR ${p.ovr}) 영입 완료! 이적료 ${formatMoney(fee)} · 에이전트 ${formatMoney(agent)} · 연봉 ${formatMoney(p.wage)} · ${p.contract}년 계약 (${fromLabel})`
+    );
+    saveState();
+    negotiation = null;
+    document.getElementById("gm-nego-modal")?.remove();
+    render();
+    showToast(`${p.name} 영입 협상 성공!`);
+  }
+
+  // ── Outgoing transfer offers ───────────────────────────────────────
+  function openSellNegotiation(player) {
+    if (!state || !player) return;
+    if (state.squad.length <= 13) {
+      showToast("최소 13명의 선수가 필요합니다.");
+      return;
+    }
+    const win = getTransferWindow(state);
+    const ageMult = player.age <= 21 ? 1.18 : player.age <= 25 ? 1.08 : player.age <= 28 ? 1 : player.age <= 31 ? 0.78 : 0.5;
+    const contractMult = player.contract <= 1 ? 0.55 : player.contract === 2 ? 0.85 : player.contract >= 4 ? 1.05 : 1;
+    const form = player.apps > 0 ? clamp((player.goals + player.assists) / player.apps, 0, 1) : 0.25;
+    const coreValue = player.value * ageMult * contractMult * (1 + form * 0.15) * (win.open ? 1 : 0.85);
+    const pool = (getBridge()?.r6?.clubs || []).filter((c) => !c.isNational && c.id !== state.clubId);
+    const offers = [];
+    const used = new Set();
+    for (let i = 0; i < 3 && pool.length; i++) {
+      let c = pick(pool);
+      let guard = 0;
+      while (used.has(c.id) && guard++ < 20) c = pick(pool);
+      used.add(c.id);
+      const mult = [0.88, 0.98, 1.08][i] * (0.95 + Math.random() * 0.1);
+      offers.push({
+        club: c,
+        fee: Math.max(10000000, Math.round((coreValue * mult) / 1000000) * 1000000),
+      });
+    }
+    offers.sort((a, b) => b.fee - a.fee);
+    const isCore =
+      player.starter &&
+      [...state.squad].sort((a, b) => b.ovr - a.ovr).slice(0, 3).some((x) => x.id === player.id);
+
+    const modal = document.createElement("div");
+    modal.id = "gm-sell-modal";
+    modal.className = "gm-modal-backdrop";
+    modal.innerHTML = `
+      <div class="gm-modal-box gm-nego-box">
+        <div class="gm-card-head">
+          <h3>💸 ${escapeHtml(player.name)} 매각 협상</h3>
+          <button type="button" class="gm-btn-sm" id="gm-sell-close">닫기</button>
+        </div>
+        <div class="gm-nego-player">
+          <div class="gm-ovr-pill">${player.ovr}</div>
+          <div class="gm-player-info">
+            <div class="gm-player-name">${escapeHtml(player.name)} <span style="font-size:11px;color:var(--gm-muted);">${player.age}세 · ${player.pos} · POT ${player.pot}</span></div>
+            <div class="gm-player-sub">가치 ${formatMoney(player.value)} · 계약 ${player.contract}년 · ${player.goals}골 ${player.assists}도움</div>
+          </div>
+        </div>
+        <div class="gm-market-summary">
+          <span>${win.open ? "🟢 이적시장 열림" : "🔴 시장 마감 (-15%)"}</span>
+          <span>나이 보정 <b>${Math.round(ageMult * 100)}%</b></span>
+          <span>계약 보정 <b>${Math.round(contractMult * 100)}%</b></span>
+          <span>현재 주급 <b>${formatMoney(player.wage)}</b></span>
+        </div>
+        ${
+          isCore
+            ? `<div class="gm-nego-note is-warn">⚠️ 핵심 선수입니다. 매각하면 팬 지지도와 이사회 신뢰, 선수단 사기가 하락합니다.</div>`
+            : ""
+        }
+        <div class="gm-list">
+          ${offers
+            .map(
+              (o, i) => `
+              <div class="gm-list-item">
+                <div class="gm-player-main">
+                  ${clubLogoHtml(o.club.id, true)}
+                  <div class="gm-player-info">
+                    <div class="gm-player-name">${escapeHtml(o.club.localName)}</div>
+                    <div class="gm-player-sub">제안 이적료 ${formatMoney(o.fee)}</div>
+                  </div>
+                </div>
+                <button type="button" class="gm-mini-btn is-active" data-accept-offer="${i}">수락</button>
+              </div>
+            `
+            )
+            .join("")}
+        </div>
+        <div class="gm-nego-note">마음에 드는 제안이 없으면 기다렸다가 다시 협상할 수 있습니다. 계약 기간이 짧거나 나이가 많을수록 이적료가 낮아집니다.</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.onclick = (e) => {
+      if (e.target === modal) close();
+    };
+    document.getElementById("gm-sell-close").addEventListener("click", close);
+    modal.querySelectorAll("[data-accept-offer]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const o = offers[Number(btn.dataset.acceptOffer)];
+        if (!o) return;
+        const idx = state.squad.findIndex((x) => x.id === player.id);
+        if (idx < 0) return;
+        state.squad.splice(idx, 1);
+        state.budget += o.fee;
+        if (isCore) {
+          state.boardTrust = clamp(state.boardTrust - 2, 0, 100);
+          state.fanSupport = clamp(state.fanSupport - 3, 0, 100);
+          state.teamMorale = clamp(state.teamMorale - 2, 20, 100);
+        }
+        state.news.unshift(
+          `💸 ${player.name} 선수를 ${o.club.localName}에 ${formatMoney(o.fee)}에 매각했습니다.${isCore ? " (핵심 선수 이탈)" : ""}`
+        );
+        saveState();
+        close();
+        render();
+        showToast(`${player.name} 매각 완료 (+${formatMoney(o.fee)})`);
       });
     });
   }
