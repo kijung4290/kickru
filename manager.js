@@ -66,13 +66,120 @@
     ],
   };
 
+  // FM 스타일의 생생한 경기 실황 (대부분 ${name}/… 자리 약양권)
+  const COMMENTARY = {
+    kickoff: "🔔 주심의 휘슬! 경기가 시작됩니다!",
+    finalMinute: "🔔 전체적으로 종료되었습니다.",
+    finished: "⏱️ 경기 종료! 최종 스코어 ${homeName} ${hg} : ${ag} ${awayName}",
+    myGoal: [
+      "⚽ GOAL!! 홈팀이 결정력의 마무리로 문을 열었습니다!",
+      "⚽ (${name}) 완벽한 확신의 슈판으로 (${pos}) 스타일의 득점을 만들어 봅니다!",
+      "⚽ (${name}) 결정력이 좋아 어느 자손이 말카를 벗어나 봅니다.",
+      "⚽ (${name}) 유효한 슈판이 좋아 골키퍼의 어깨에 걸리고 말카를 벗어나 봅니다!",
+      "⚽ (${name}) 완벽한 주경을 시행했습니다. (${pos}) 스타일의 득점 고도에 확신이 있네요.",
+      "⚽ (${name}) 매치에 자손이 빠지며 유효한 타격이 결정를 만들었습니다!",
+      "⚽ (${name}) 집중력 있는 정발 스타일의 득점입니다!",
+      "⚽ (${name}) 조용한 통로 전환으로 트컷 스타일의 종료를 시행했습니다!",
+      "⚽ (${name}) 완벽한 표식 스타일의 득점! 스타일의 신경을 통하는 다른 시너지들",
+      "⚽ (${name}) 감독님 배려로 더 많은 경기에 집중이 가능해졌습니다. 득점의 기횸이 연방 연속이 되고 있습니다.",
+    ],
+    oppGoal: [
+      "🚨 실점! 상대팀 (${name}) 결정력의 완벽한 공격이 승리를 뒤집었습니다!",
+      "🚨 (${name}) 완벽한 슈판! (${pos}) 스타일의 득점이 분위기를 바꾸었습니다!",
+      "🚨 상대의 압박이 유효한 타격이 확률이 매치에 나타나 봅니다.",
+      "🚨 (${name}) 결정력이 좋아 수비진의 공란을 튀고 공격으로 연결되었습니다!",
+      "🚨 (${name}) 어느 통합 능력이 뛰어난 자손이 말카를 벗어나 봅니다.",
+      "🚨 (${name}) 유효한 타격이 결정를 만들었습니다! 상대팀 전체에 인상적입니다.",
+      "🚨 (${name}) 등심의 가속성입니다. 상대팀이 압박을 받으며 득점을 잃어봅니다.",
+      "🚨 (${name}) 완벽한 슈판이 수비진의 비스듬한 안정성에 맞아 결정를 만들었습니다.",
+      "🚨 (${name}) 중심으로 통합 능력이 뛰어난 자손이 완전한 팀 연결을 만들었습니다.",
+    ],
+    saved: [
+      "🧤 (${name}) 날카로운 유효슈판! 골키퍼가 몸을 날려 선박을 성공적으로 막았습니다!",
+      "🧤 (${name}) 변종자리에 있어 어느 샷이 골키퍼가 잡아 말카를 벗어나 봅니다!",
+      "🧤 (${name}) 결정력을 보여 득점을 만들어 봅니다. 골키퍼가 말카를 벗어나 봅니다.",
+      "🧤 (${name}) 포스트에 있어 어느 샷이 골키퍼가 잡아 말카를 벗어나 봅니다!",
+      "🧤 (${name}) 속임수가 되는 슈팍로는 골키퍼가 말카를 벗어나 봅니다.",
+    ],
+    offTarget: [
+      "💨 ${name}의 슈판이 아쉽게 골대를 살짝 벗어납니다.",
+      "💨 (${name}) 어느 말카를 벗어나 몸이 날라봅니다.",
+      "💨 (${name}) 어느 통합 능력이 좋아 약간의 공격이 말카를 벗어나 봅니다.",
+      "💨 (${name}) 완벽한 슈판이 유효한 타격이 말카를 벗어나 봅니다.",
+      "💨 (${name}) 어느 말카를 벗어나 어느 팅이 말카를 벗어나 봅니다.",
+    ],
+    possession: [
+      "🔄 (${owner}) 중심으로 ${tacticLabel} 패스 전개가 이어집니다.",
+      "🔄 (${owner}) 변로위치 안이 말카를 벗어나 봅니다.",
+      "🛡️ 상대 공세를 수비진이 차분하게 차단합니다.",
+      "🔄 (${owner}) 중심으로 수비진이 압박해 정렬되는 모습이 보였습니다.",
+      "🔄 (${owner}) 중심으로 ${tacticLabel} 정식 경기 전전 공격이 이어집니다.",
+    ],
+    clear: [
+      "🧤 (${name}) 어느 결정력이 감정지업이 발생해 말카를 벗어나 봅니다.",
+      "🧤 (${name}) 골키퍼가 양아치 샷을 잡아 말카를 벗어나 봅니다.",
+      "🧤 (${name}) 변종자리에 있어 결정력이 좋아 말카를 벗어나 봅니다.",
+      "🧤 (${name}) 속임수가 되는 슈팍로는 골키퍼가 말카를 벗어나 봅니다.",
+    ],
+    dribble: [
+      "💨 (${name}) 결정력으로 반복된 공격이 유효한 타격이 말카를 벗어나 봅니다.",
+      "💨 (${name}) 중앙에서 결정력으로 구경을 통해 말카를 벗어나 봅니다.",
+      "💨 (${name}) 결정력으로 구경을 통해 골키퍼가 말카를 벗어나 봅니다.",
+      "💨 (${name}) 완벽한 슈판이 유효한 타격이 말카를 벗어나 봅니다.",
+    ],
+    help: [
+      "🔄 어시스트: (${name}) 완벽한 확신의 슈판이 어느 자손이 말카를 벗어나 봅니다.",
+      "🔄 패스 전도 스타일의 (${name}) 결정력이 제작되는 상황입니다.",
+    ],
+  };
+
+  const ASSISTS = [
+    "(${name})의 도움으로 어느 완벽한 마무리가 결정되었습니다.",
+    "(${name}) 유효한 타격이 결정를 만들어 봅니다.",
+    "(${name}) 트컷 스타일의 완벽한 마무리가 바로 엮입니다.",
+    "(${name}) 중심으로 통합 능력이 좋아 득점 결정을 만들어 봅니다.",
+  ];
+
+  const CLEAR = [
+    "🧤 (${name}) 결정력으로 말카를 벗어나 봅니다.",
+    "🧤 (${name}) 결정력이 좋아 어느 샷이 골키퍼가 잡아 말카를 벗어나 봅니다.",
+  ];
+
+  const DRIBBLE = [
+    "💨 (${name}) 결정력으로 구경을 통해 말카를 벗어나 봅니다.",
+    "💨 (${name}) 결정력으로 반복된 공격이 유효한 타격이 말카를 벗어나 봅니다.",
+  ];
+
+  const SHOTS = [
+    "💨 (${name}) 완벽한 슈판이 유효한 타격이 골대를 벗어나 봅니다.",
+    "💨 (${name}) 완벽한 슈판이 어느 말카를 벗어나 몸이 날라봅니다.",
+  ];
+
+  const GOAL_BANNERS = {
+    my: [
+      "⚽ GOAL!! 홈팀이 결정력의 마무리로 문을 열었습니다!",
+      "⚽ 홈팀이 완벽한 확신의 슈판으로 (${name}) 선수의 득점으로 승리합니다!",
+      "⚽ (${name}) 선수의 득점으로 동점에서 승리합니다!",
+      "⚽ (${name}) 선수의 득점으로 완벽한 표식 스타일의 득점이 결정적으로 시행했습니다!",
+    ],
+    opp: [
+      "🚨 실점! 상대팀 (${name}) 선수의 득점으로 승리를 뒤집었습니다!",
+      "🚨 상대팀 (${name}) 선수의 완벽한 슈판으로 실점했습니다!",
+      "🚨 상대팀 (${name}) 선수의 득점으로 상대의 공세를 차단해 말카를 벗어나 봅니다.",
+      "🚨 상대팀 (${name}) 선수의 완벽한 표식 스타일의 득점으로 실점했습니다!",
+    ],
+  };
+
   const SHOUTS = {
     demand: { label: "🔥 몰아붙여라", attMod: 3.2, defMod: -0.5, staminaMult: 1.25, msg: "감독이 터치라인에서 강하게 전방 압박과 공격을 주문합니다!" },
     encourage: { label: "👏 격려", attMod: 1.8, defMod: 1.5, staminaMult: 1.0, msg: "감독이 박수를 치며 선수들에게 자신감을 불어넣습니다." },
     calm: { label: "🧘 침착", attMod: 0.4, defMod: 2.8, staminaMult: 0.9, msg: "감독이 흥분한 선수들을 진정시키며 차분한 빌드업을 지시합니다." },
     attackAll: { label: "⚡ 전원공격", attMod: 5.0, defMod: -3.2, staminaMult: 1.3, msg: "감독이 라인을 극단적으로 끌어올리며 총공격을 지시합니다!" },
-    parkBus: { label: "🚌 전원수비", attMod: -3.0, defMod: 4.8, staminaMult: 0.85, msg: "감독이 수비 블록을 두텁게 세워 골문을 걸어 잠급니다!" },
+    parkBus: { label: "🚌 전원수비", attMod: -3.0, defMod: 4.8, staminaMult: 0.85, msg: "감독이 수비 블록을 두텁게 세워 골문을 걸어 잠그입니다!" },
   };
+
+  const subst = (t, o = {}) => String(t).replace(/\$\{(\w+)\}/g, (_, k) => String(o[k] ?? ""));
+  const pickText = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
   const TACTICS = {
     balanced: { label: "균형 전술", desc: "공수 밸런스를 유지하며 안정적으로 경기를 운영합니다." },
@@ -3330,9 +3437,10 @@
       };
     });
 
-    // Generate 11 opponent players
-    const oppSlots = FORMATIONS["4-3-3"].slots;
-    const oppCoords = getFormationCoords("4-3-3");
+    // Generate 11 opponent players (sometimes a different formation)
+    const oppFormationKey = Math.random() < 0.35 ? pick(Object.keys(FORMATIONS).filter((k) => k !== s.formation)) : "4-3-3";
+    const oppSlots = FORMATIONS[oppFormationKey].slots;
+    const oppCoords = getFormationCoords(oppFormationKey);
     const oppLineup = oppSlots.map((slot, idx) => {
       const base = oppCoords[idx] || [0.3, 0.5];
       const x = mySide === "home" ? 1 - base[0] : base[0];
@@ -3356,6 +3464,7 @@
       awayClubId: match.away,
       homeName: getClub(match.home)?.localName || match.home,
       awayName: getClub(match.away)?.localName || match.away,
+      oppFormation: oppFormationKey,
       oppStrength: oppClub.strength || 65,
       compName: `${league?.name || ""} ${s.round + 1}R`,
       hg: 0,
@@ -3369,7 +3478,7 @@
       cameraMode: "tv3d",
       cam: { x: 0, y: -64, z: 36, lx: 0, ly: 0, lz: 0 },
       ball: { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, z: 0, vz: 0, trail: [], ownerTeam: mySide, ownerIdx: 9, phase: "kickoff" },
-      stats: { possHome: 1, possAway: 1, shotsHome: 0, shotsAway: 0, onTargetHome: 0, onTargetAway: 0, xgHome: 0, xgAway: 0 },
+      stats: { possHome: 1, possAway: 1, shotsHome: 0, shotsAway: 0, onTargetHome: 0, onTargetAway: 0, xgHome: 0, xgAway: 0, passHome: 0, passAway: 0, passHomeS: 0, passAwayS: 0, passShots: 0, clearHome: 0, clearAway: 0, dribbleHome: 0, dribbleAway: 0, assistHome: 0, assistAway: 0 },
       shoutCooldown: 0,
       activeShout: null,
       htBoost: { att: 0, def: 0 },
@@ -3382,7 +3491,7 @@
       myScorers: [],
       goalBanner: null,
       goalBannerTicks: 0,
-      logs: [{ min: 0, text: `주심의 휘슬! ${myClub?.localName} vs ${oppClub.localName} 경기가 시작됩니다!`, type: "info" }],
+      logs: [{ min: 0, text: COMMENTARY.kickoff, type: "info" }],
     };
 
     render();
@@ -3483,6 +3592,33 @@
     lm.ball.vz = Math.max(lm.ball.vz || 0, 0.08 + Math.random() * 0.12);
     lm.ball.phase = "play";
 
+    // Possession narration: passes, dribbles, clearances (FM-style "living commentary")
+    const hasBall = myHasBall
+      ? possSide === lm.mySide
+      : possSide === (lm.mySide === "home" ? "away" : "home");
+
+    if (hasBall) {
+      if (possSide === "home") lm.stats.passHome++;
+      else lm.stats.passAway++;
+      if (Math.random() < 0.75) {
+        if (possSide === "home") lm.stats.passHomeS++;
+        else lm.stats.passAwayS++;
+      }
+      if (Math.random() < 0.05) {
+        if (possSide === "home") lm.stats.dribbleHome++;
+        else lm.stats.dribbleAway++;
+        lm.logs.unshift({ min: lm.minute, text: subst(pickText(DRIBBLE), { name: pickMyPlayerWeighted(lm.myLineup, { DEF: 8, CDM: 6, CM: 4, CAM: 4, LW: 2, RW: 2, ST: 2 }).name }), type: "info" });
+      }
+      if (Math.random() < 0.12) {
+        lm.logs.unshift({ min: lm.minute, text: subst(pickText(COMMENTARY.possession), { owner: owner.name, tacticLabel: TACTICS[state.tactic]?.label }), type: "info" });
+      }
+    } else if (Math.random() < 0.1) {
+      if (possSide === "home") lm.stats.clearAway++;
+      else lm.stats.clearHome++;
+      const keeper = (myHasBall ? lm.myLineup[0] : lm.oppLineup[0]) || pick(myHasBall ? lm.myLineup : lm.oppLineup);
+      lm.logs.unshift({ min: lm.minute, text: subst(pickText(CLEAR), { name: keeper?.name || owner.name }), type: "info" });
+    }
+
     // Chance & Shot generation (~19% per minute -> ~17 total shots per 90')
     const eventRoll = Math.random();
     if (eventRoll < 0.19) {
@@ -3526,12 +3662,15 @@
             if (assister) {
               assister.assists++;
               assister.rating = clamp(assister.rating + 0.5, 5.0, 10.0);
+              if (possSide === "home") lm.stats.assistHome++;
+              else lm.stats.assistAway++;
             }
             lm.goalBanner = { team: myClubName(state), scorer: shooter.name, isMyGoal: true };
             lm.goalBannerTicks = 4;
+            const subText = assister ? ` ${subst(pickText(ASSISTS), { name: assister.name })}` : "";
             lm.logs.unshift({
               min: lm.minute,
-              text: `⚽ GOAL!! ${shooter.name}${assister ? ` (도움: ${assister.name})` : ""}의 환상적인 마무리! (${lm.hg}:${lm.ag})`,
+              text: subst(pickText(GOAL_BANNERS.my), { name: shooter.name, pos: shooter.pos }) + subText,
               type: "goal",
             });
           } else {
@@ -3540,36 +3679,29 @@
             lm.goalBannerTicks = 4;
             lm.logs.unshift({
               min: lm.minute,
-              text: `🚨 실점... ${oppName} ${shooter.name}의 득점. (${lm.hg}:${lm.ag})`,
+              text: subst(pickText(GOAL_BANNERS.opp), { name: shooter.name, pos: shooter.pos }),
               type: "opp-goal",
             });
+            if (possSide === "home") lm.stats.assistAway++;
+            else lm.stats.assistHome++;
           }
         } else {
-          // Saved by GK
-          if (!myHasBall) {
-            const myGk = lm.myLineup[0];
-            if (myGk) myGk.rating = clamp(myGk.rating + 0.25, 5.0, 10.0);
+          // Saved by GK or off target
+          if (Math.random() < 0.4) {
+            const saver = (myHasBall ? lm.myLineup[0] : lm.oppLineup[0]) || pick(myHasBall ? lm.myLineup : lm.oppLineup);
+            if (saver) saver.rating = clamp(saver.rating + 0.3, 5.0, 10.0);
+            lm.logs.unshift({ min: lm.minute, text: subst(pickText(COMMENTARY.saved), { name: saver?.name || shooter.name }), type: "info" });
+          } else {
+            lm.logs.unshift({ min: lm.minute, text: subst(pickText(COMMENTARY.offTarget), { name: shooter.name }), type: "info" });
           }
-          lm.logs.unshift({
-            min: lm.minute,
-            text: `🧤 ${shooter.name}의 날카로운 유효슈팅! 골키퍼가 몸을 날려 선방합니다!`,
-            type: "info",
-          });
         }
-      } else if (eventRoll < 0.09) {
-        lm.logs.unshift({
-          min: lm.minute,
-          text: `💨 ${shooter.name}의 슈팅이 아쉽게 골대를 살짝 벗어납니다.`,
-          type: "info",
-        });
+      } else if (Math.random() < 0.45) {
+        lm.logs.unshift({ min: lm.minute, text: subst(pickText(COMMENTARY.offTarget), { name: shooter.name }), type: "info" });
       }
     } else if (eventRoll > 0.94) {
-      // Midfield highlight commentary
       lm.logs.unshift({
         min: lm.minute,
-        text: myHasBall
-          ? `🔄 ${owner.name} 중심으로 ${TACTICS[state.tactic]?.label} 패스 전개가 이어집니다.`
-          : `🛡️ 상대 공세를 수비진이 차분하게 차단합니다.`,
+        text: subst(pickText(COMMENTARY.possession), { owner: owner.name, tacticLabel: TACTICS[state.tactic]?.label }),
         type: "info",
       });
     }
@@ -3582,6 +3714,18 @@
       lm.halftimeWaiting = false;
       stopLiveTimers();
       lm.logs.unshift({ min: 90, text: `⏱️ 경기 종료! 최종 스코어 ${lm.homeName} ${lm.hg} : ${lm.ag} ${lm.awayName}`, type: "info" });
+      // Final detailed game report (realistic FM-style)
+      const totShotsF = Math.max(1, lm.stats.shotsHome + lm.stats.shotsAway);
+      const shotPct = Math.round((lm.stats.shotsHome / totShotsF) * 100);
+      const totPassF = Math.max(1, lm.stats.passHome + lm.stats.passAway);
+      const passPct = Math.round((lm.stats.passHome / totPassF) * 100);
+      const totClearF = Math.max(1, lm.stats.clearHome + lm.stats.clearAway);
+      const clearPct = Math.round((lm.stats.clearHome / totClearF) * 100);
+      lm.logs.unshift({
+        min: 90,
+        text: `📊 최종 보고서 ${lm.homeName} ${lm.hg} : ${lm.ag} ${lm.awayName} · 슈판 ${lm.stats.shotsHome}(${shotPct}%) · 패스 연결 ${lm.stats.passHome}(${passPct}%) · 수비 타드 ${lm.stats.clearHome}(${clearPct}%)`,
+        type: "info",
+      });
     }
 
     if (!silent) {
@@ -3737,7 +3881,7 @@
     liveMatch = null;
     saveState();
     render();
-    showToast("실황 경기 결과가 리그에 반영되었습니다!");
+    showToast(`${lm.homeName} ${lm.hg} : ${lm.ag} ${lm.awayName} · 최종 경기 기록 반영 완료! (슈판 ${lm.stats.shotsHome}, 패스 ${lm.stats.passHome}, 수비타드 ${lm.stats.clearHome})`);
   }
 
   function stepPitchPhysics() {
@@ -3763,7 +3907,23 @@
     const bwx = (lm.ball.x - 0.5) * 105;
     const bwy = (lm.ball.y - 0.5) * 68;
     let tCam = { x: bwx * 0.42, y: -64, z: 36, lx: bwx * 0.62, ly: bwy * 0.25, lz: 0 };
-    if (lm.cameraMode === "zoom3d") {
+    if (["player3d", "sub3d"].includes(lm.cameraMode)) {
+      const line = lm.ball.ownerTeam === lm.mySide ? lm.myLineup : lm.oppLineup;
+      const focusIdx = Math.max(0, Math.min(line.length - 1, Math.abs(lm.ball.ownerIdx ?? 8) % 11));
+      const focus = line[focusIdx] || line[0];
+      const lookX = bwx;
+      const lookY = bwy;
+      if (lm.cameraMode === "player3d") {
+        const fx = (clamp(focus.tx - 0.28, 0.04, 0.96) - 0.5) * 105;
+        const fy = (clamp(focus.ty - 0.28, 0.08, 0.92) - 0.5) * 68;
+        tCam = { x: fx, y: fy, z: 18, lx: lookX, ly: lookY, lz: 1 };
+      } else {
+        const best = pickMyPlayerWeighted(lm.myLineup, { DEF: 10, CDM: 6, CM: 4, CAM: 4, LW: 2, RW: 2, ST: 2 }) || lm.myLineup[0];
+        const fx = (clamp(best.tx - 0.5, 0.04, 0.96) - 0.5) * 105;
+        const fy = (clamp(best.ty - 0.5, 0.08, 0.92) - 0.5) * 68;
+        tCam = { x: fx, y: fy, z: 22, lx: lookX, ly: lookY, lz: 1.5 };
+      }
+    } else if (lm.cameraMode === "zoom3d") {
       tCam = { x: bwx * 0.72, y: bwy * 0.28 - 38, z: 20, lx: bwx * 0.9, ly: bwy * 0.65, lz: 0.9 };
     } else if (lm.cameraMode === "end3d") {
       const dir = lm.mySide === "home" ? 1 : -1;
@@ -4302,6 +4462,8 @@
               <button type="button" class="gm-cam-btn ${lm.cameraMode === "tv3d" ? "is-active" : ""}" data-cam="tv3d">🎥 3D TV 중계</button>
               <button type="button" class="gm-cam-btn ${lm.cameraMode === "zoom3d" ? "is-active" : ""}" data-cam="zoom3d">🦅 3D 다이내믹 줌</button>
               <button type="button" class="gm-cam-btn ${lm.cameraMode === "end3d" ? "is-active" : ""}" data-cam="end3d">🏟️ 3D 골대 뒤</button>
+              <button type="button" class="gm-cam-btn ${lm.cameraMode === "player3d" ? "is-active" : ""}" data-cam="player3d">🎯 3D 플레이어 이면</button>
+              <button type="button" class="gm-cam-btn ${lm.cameraMode === "sub3d" ? "is-active" : ""}" data-cam="sub3d">🦥 3D 패스/드리블 이면</button>
               <button type="button" class="gm-cam-btn ${lm.cameraMode === "classic2d" ? "is-active" : ""}" data-cam="classic2d">📋 2D 전술판</button>
             </div>
             <span class="gm-badge is-blue" id="gm-cam-label">3D 스타디움 엔진</span>
@@ -4501,7 +4663,15 @@
     });
     const camLbl = document.getElementById("gm-cam-label");
     if (camLbl) {
-      camLbl.textContent = lm.cameraMode === "classic2d" ? "2D 클래식 전술판" : "3D 스타디움 엔진";
+      camLbl.textContent =
+        {
+          tv3d: "3D TV 중계",
+          zoom3d: "3D 다이내믹 줌",
+          end3d: "3D 골대 뒤",
+          classic2d: "2D 클래식 전술판",
+          player3d: "3D 플레이어 이면",
+          sub3d: "3D 패스/드리블 이면",
+        }[lm.cameraMode] || "3D 스타디움 엔진";
     }
     document.querySelectorAll("[data-speed]").forEach((btn) => {
       btn.classList.toggle("is-active", Number(btn.dataset.speed) === lm.speed);
@@ -4520,6 +4690,8 @@
       const sHomePct = Math.round((lm.stats.shotsHome / totShots) * 100);
       const totXg = Math.max(0.01, lm.stats.xgHome + lm.stats.xgAway);
       const xHomePct = Math.round((lm.stats.xgHome / totXg) * 100);
+      const passHomePct = lm.stats.passHome ? Math.round((lm.stats.passHomeS / lm.stats.passHome) * 100) : 0;
+      const passAwayPct = lm.stats.passAway ? Math.round((lm.stats.passAwayS / lm.stats.passAway) * 100) : 0;
 
       statsEl.innerHTML = `
         <div class="gm-stat-bar-row">
@@ -4534,6 +4706,15 @@
           <div class="gm-stat-bar-nums"><span>${lm.stats.xgHome.toFixed(2)}</span><span>기대 득점 (xG)</span><span>${lm.stats.xgAway.toFixed(2)}</span></div>
           <div class="gm-stat-bar-track"><div class="gm-stat-bar-home" style="width:${xHomePct}%"></div><div class="gm-stat-bar-away" style="width:${100 - xHomePct}%"></div></div>
         </div>
+        <div class="gm-stat-bar-row">
+          <div class="gm-stat-bar-nums"><span>${lm.stats.passHomeS}/${lm.stats.passHome} (${passHomePct}%)</span><span>패스 정확률·연결</span><span>${lm.stats.passAwayS}/${lm.stats.passAway} (${passAwayPct}%)</span></div>
+          <div class="gm-stat-bar-track"><div class="gm-stat-bar-home" style="width:${passHomePct}%"></div><div class="gm-stat-bar-away" style="width:${100 - passHomePct}%"></div></div>
+        </div>
+        <div class="gm-stat-bar-row">
+          <div class="gm-stat-bar-nums"><span>${lm.stats.clearHome} 골</span><span>수비 타드</span><span>${lm.stats.clearAway} 골</span></div>
+          <div class="gm-stat-bar-track"><div class="gm-stat-bar-home" style="width:${lm.stats.clearHome ? clamp(lm.stats.clearHome / (lm.stats.clearHome + lm.stats.clearAway + 1), 0, 1) * 100 : 50}%"></div><div class="gm-stat-bar-away" style="width:${lm.stats.clearAway ? clamp(lm.stats.clearAway / (lm.stats.clearHome + lm.stats.clearAway + 1), 0, 1) * 100 : 50}%"></div></div>
+        </div>
+
       `;
     }
 
